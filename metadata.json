@@ -1,0 +1,8 @@
+{
+  "name": "QuantRadar - NSE Quant Trading & Strategy Matrix",
+  "description": "Professional spreadsheet-to-SaaS trading terminal for Indian NSE stocks, sector rotation heatmaps, Bull/Bear slot radar, strategy-based forecast models, and paper execution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
