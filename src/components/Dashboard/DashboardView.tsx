@@ -37,29 +37,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <GlobalMarketSearch stocks={stocks} onSelectStock={onSelectStock} />
       </div>
 
-      {/* SECTION 1: Market Index Cards (NIFTY 50, BANK NIFTY, SENSEX) */}
+      {/* SECTION 1: Portfolio / Trading Area Summary */}
+      <PortfolioSummary
+        onNavigateToPositions={onNavigateToPositions}
+        onNavigateToPaperTrading={onNavigateToPaperTrading}
+      />
+
+      {/* SECTION 2: Market Index Cards (NIFTY 50, BANK NIFTY, SENSEX) */}
       <MarketIndexGrid
         indices={indices}
         onSelectStock={onSelectStockBySymbol}
       />
 
-      {/* SECTION 2: Market Movers (Gainers, Losers, Most Active, Volume Buzzers) */}
+      {/* SECTION 3: Market Movers (Gainers, Losers, Most Active, Volume Buzzers) */}
       <MarketMovers onSelectStock={onSelectStockBySymbol} />
 
-      {/* SECTION 3: Top Sectors (Bullish & Bearish Participation Matrix) */}
+      {/* SECTION 4: Top Sectors (Bullish & Bearish Participation Matrix) */}
       <TopSectors
         onSelectStock={onSelectStockBySymbol}
         onNavigateToSectorsView={onNavigateToSectorsView}
       />
 
-      {/* SECTION 4: Market Heatmaps (Overall Market + Sector Heatmaps) */}
+      {/* SECTION 5: Market Heatmaps (Overall Market + Sector Heatmaps) */}
       <MarketHeatmaps onSelectStock={onSelectStockBySymbol} />
-
-      {/* SECTION 5: Portfolio / Trading Area Summary */}
-      <PortfolioSummary
-        onNavigateToPositions={onNavigateToPositions}
-        onNavigateToPaperTrading={onNavigateToPaperTrading}
-      />
     </div>
   );
 };
