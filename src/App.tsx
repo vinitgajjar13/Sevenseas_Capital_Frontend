@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  INITIAL_INDICES,
   INITIAL_BREADTH,
   INITIAL_STOCKS_RADAR,
   INITIAL_ACTIVE_SIGNALS,
   INITIAL_POSITIONS,
   INITIAL_TRADE_HISTORY,
-  MARKET_TIMELINE_STEPS,
   formatINR,
 } from './data/mockData';
 import { MOCK_MARKET_INDEXES } from './data/mock/indexes';
@@ -23,21 +21,22 @@ import {
 } from './types';
 import { getInitialWatchlist, MasterStockEntry } from './data/mock/watchlistData';
 import { getStockClassification } from './utils/stockRanking';
-import { Sidebar } from './components/Sidebar';
-import { Header } from './components/Header';
-import { DashboardView } from './components/Dashboard/DashboardView';
-import { MarketOverview } from './components/MarketOverview';
-import { MarketSentimentGauge } from './components/MarketSentimentGauge';
-import { StockRadarTable } from './components/StockRadarTable';
-import { SectorRadarView } from './components/SectorRadarView';
-import { StockDetailView } from './components/StockDetailView';
-import { ActiveSignals } from './components/ActiveSignals';
-import { PositionsTable } from './components/PositionsTable';
-import { SectorWatchlistView } from './components/Watchlist/SectorWatchlistView';
-import { PaperTradingView } from './components/PaperTradingView';
-import { SettingsView } from './components/SettingsView';
-import { LoginModal, UserProfile } from './components/LoginModal';
-import { Disclaimer } from './components/Disclaimer';
+import {
+  Sidebar,
+  Header,
+  Disclaimer,
+  LoginModal,
+  UserProfile,
+  DashboardView,
+  SectorRadarView,
+  StockRadarTable,
+  StockDetailView,
+  ActiveSignals,
+  PositionsTable,
+  SectorWatchlistView,
+  PaperTradingView,
+  SettingsView,
+} from './components';
 import { BellRing } from 'lucide-react';
 
 export default function App() {

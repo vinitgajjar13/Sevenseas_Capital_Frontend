@@ -237,75 +237,12 @@ export interface TradeHistoryItem {
   exitReason: TradeExitReason;
 }
 
-export interface HistoricalRadarLog {
-  id: string;
-  date: string;
-  time: string;
-  symbol: string;
-  sector: string;
-  slot: string;
-  status: StockStatus;
-  action: string;
-  quantScore: number;
-  entryPrice: number;
-  exitPrice: number;
-  outcome: 'TARGET_1_HIT' | 'TARGET_2_HIT' | 'TRAILING_SL' | 'SL_HIT' | 'DAY_END_CLOSE';
-  pnlPercent: number;
-  duration: string;
-  rVolAtTrigger: number;
-  analystComment: string;
-}
-
-export interface StrategyForecastModel {
-  symbol: string;
-  name: string;
-  timeframe: string;
-  bias: 'STRONGLY BULLISH' | 'MODERATELY BULLISH' | 'NEUTRAL / RANGE' | 'MODERATELY BEARISH' | 'STRONGLY BEARISH';
-  confidencePercentage: number;
-  expectedRangeLow: number;
-  expectedRangeHigh: number;
-  pivot: number;
-  support1: number;
-  support2: number;
-  resistance1: number;
-  resistance2: number;
-  target1: number;
-  target2: number;
-  invalidationLevel: number;
-  riskRewardRatio: string;
-  projectedTrajectory: { day: string; baseline: number; optimistic: number; conservative: number }[];
-  keyRulesMet: { rule: string; satisfied: boolean; weight: string }[];
-  rationale: string;
-}
-
-export interface TimelineStep {
-  time: string;
-  title: string;
-  description: string;
-  status: 'COMPLETED' | 'ACTIVE' | 'PENDING';
-  detail: string;
-}
-
-export interface AnalystInsight {
-  id: string;
-  category: 'SECTOR_ROTATION' | 'VOLUME_SURGE' | 'RE_ENTRY_ALERT' | 'RISK_NOTE';
-  timestamp: string;
-  headline: string;
-  body: string;
-  impactedSymbols: string[];
-  sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-}
-
 export type NavTab =
   | 'dashboard'
   | 'stock-radar'
   | 'sector-radar'
-  | 'forecast'
-  | 'signals'
   | 'positions'
   | 'paper-trading'
-  | 'historical-radar'
-  | 'strategy-rules'
   | 'settings'
   | 'stock-detail';
 
