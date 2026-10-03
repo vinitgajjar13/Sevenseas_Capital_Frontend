@@ -779,6 +779,7 @@ export default function App() {
                 setSelectedSectorName(null);
                 setActiveTab('sector-radar');
               }}
+              theme={theme}
             />
           )}
 
@@ -929,6 +930,7 @@ export default function App() {
                 onSquareOffAll={handleSquareOffAll}
                 onResetPaperAccount={handleResetPaperAccount}
                 onSimulateTrade={handleSimulateTrade}
+                theme={theme}
               />
             </div>
           )}

@@ -36,7 +36,10 @@ import { formatINR, formatNumber } from '../../utils/formatters';
 import { detectCandlestickPattern, calculateSupportResistance } from '../../utils/technicalPatterns';
 import { getFloatAndLiquidity, formatShares } from '../../utils/liquidityMetrics';
 import { calculateHistoricalVolatility } from '../../utils/volatilityMetrics';
-import { LightweightCandlestickChart } from './LightweightCandlestickChart';
+import type { Candle } from '../Charts/types';
+import { generateOhlc } from '../Charts/mockChartData';
+
+const ChartWorkspace = React.lazy(() => import('../Charts/ChartWorkspace'));
 
 interface StockDetailViewProps {
   stock: StockRadarItem;
@@ -283,6 +286,52 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
     : stock.slot.includes('Slot 4')
     ? 'Slot 4 (Mean-Reversion)'
     : 'Slot 5 (Distribution)';
+
+  // Map existing stock.chartData to Candle[] (time in UTC seconds, plus open/high/low/close/volume)
+  // If the existing data has no OHLCV, generate it with generateOhlc seeded from the stock's LTP.
+  const chartCandles: Candle[] = useMemo(() => {
+    const raw = stock.chartData;
+    const hasOhlcv =
+      Boolean(raw && raw.length > 0) &&
+      raw.every((pt: any) =>
+        typeof pt.open === 'number' &&
+        typeof pt.high === 'number' &&
+        typeof pt.low === 'number' &&
+        typeof pt.close === 'number'
+      );
+
+    if (hasOhlcv && raw) {
+      // 09:15 AM IST is 03:45 UTC
+      const today = new Date();
+      today.setUTCHours(3, 45, 0, 0);
+      const baseUtcSec = Math.floor(today.getTime() / 1000);
+
+      return raw.map((pt: any, idx: number) => {
+        let timeSec: number;
+        if (typeof pt.time === 'number') {
+          timeSec = pt.time > 1e11 ? Math.floor(pt.time / 1000) : pt.time;
+        } else if (typeof pt.time === 'string' && pt.time.includes(':')) {
+          const [h, m] = pt.time.split(':').map(Number);
+          const offsetMinutes = (h - 9) * 60 + (m - 15);
+          timeSec = baseUtcSec + Math.max(0, offsetMinutes) * 60;
+        } else {
+          timeSec = baseUtcSec + idx * 300;
+        }
+
+        return {
+          time: timeSec,
+          open: pt.open,
+          high: pt.high,
+          low: pt.low,
+          close: pt.close,
+          volume: typeof pt.volume === 'number' ? pt.volume : 25000,
+        };
+      });
+    }
+
+    const seed = Math.abs(Math.round(stock.ltp * 100)) || 7;
+    return generateOhlc(400, stock.ltp, 300, seed);
+  }, [stock.chartData, stock.ltp]);
 
   // Build authentic 5-Min Intraday Candlestick series from chartData & OHLC
   const candleData: CandlePoint[] = useMemo(() => {
@@ -1260,19 +1309,26 @@ if (!s1 || !r1 || s1 >= r1) return;
           </div>
         </div>
 
-        {/* RIGHT COLUMN: FOCUSED ELEMENT - CANDLESTICK BAR CHART & STRATEGY DECISION */}
-        x   <div className="lg:col-span-7 space-y-3.5">
-          {/* FOCUSED ELEMENT: LIGHTWEIGHT CHARTS CANDLESTICK CARD */}
+        <div className="lg:col-span-7 space-y-3.5">
+          {/* FOCUSED ELEMENT: CHART WORKSPACE CARD */}
           <div
             id="stock-chart-card"
-            className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3"
+            className="w-full"
           >
-            <LightweightCandlestickChart
-              stockSymbol={stock.symbol}
-              stockName={stock.name}
-              basePrice={stock.ltp}
-              theme={theme}
-            />
+            <React.Suspense
+              fallback={
+                <div className="h-[560px] animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-mono">
+                  Loading Chart Workspace...
+                </div>
+              }
+            >
+              <ChartWorkspace
+                symbol={stock.symbol}
+                candles={chartCandles}
+                theme={theme || 'light'}
+                height={520}
+              />
+            </React.Suspense>
           </div>
 
           {/* QUANT STRATEGY & TRADE DECISION SETUP */}

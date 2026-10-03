@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Briefcase,
   TrendingUp,
@@ -16,9 +16,11 @@ import {
   Info,
   CheckCircle2,
   Lock,
+  BarChart2,
 } from 'lucide-react';
 import { PositionItem, TradeHistoryItem, StockRadarItem } from '../../types';
 import { formatINR } from '../../utils/formatters';
+import { DepthChart, generateOrderBook } from '../Charts';
 
 interface PaperTradingViewProps {
   positions: PositionItem[];
@@ -29,6 +31,7 @@ interface PaperTradingViewProps {
   onSquareOffAll: () => void;
   onSimulateTrade: (stock: StockRadarItem) => void;
   onResetPaperAccount: () => void;
+  theme?: 'light' | 'dark';
 }
 
 export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
@@ -40,12 +43,23 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
   onSquareOffAll,
   onSimulateTrade,
   onResetPaperAccount,
+  theme = 'light',
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'positions' | 'history'>('positions');
   const [selectedStockSymbol, setSelectedStockSymbol] = useState<string>(stocks[0]?.symbol || '');
   const [customTradeType, setCustomTradeType] = useState<'CE' | 'PE'>('CE');
   const [customLots, setCustomLots] = useState<number>(2);
   const [showOrderModal, setShowOrderModal] = useState<boolean>(false);
+
+  const selectedStock = useMemo(() => {
+    return stocks.find((s) => s.symbol === selectedStockSymbol) || stocks[0];
+  }, [stocks, selectedStockSymbol]);
+
+  const orderBook = useMemo(() => {
+    const price = selectedStock ? selectedStock.ltp : 1500;
+    const tick = price > 2000 ? 1 : price > 500 ? 0.5 : 0.1;
+    return generateOrderBook(price, tick, 25);
+  }, [selectedStock?.ltp]);
 
   // Financial calculations
   const totalUnrealizedPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
@@ -115,70 +129,113 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
       {/* VIRTUAL ACCOUNT BALANCE & MARGIN STATS GRID */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Card 1: Virtual Portfolio Equity */}
-        <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
+        <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
             Virtual Portfolio Value
           </span>
-          <div className="text-xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1 tabular-nums">
             {formatINR(totalNetPortfolioValue)}
           </div>
-          <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-1 font-mono">
+          <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-mono">
             <span>Base: {formatINR(virtualBalance)}</span>
           </div>
         </div>
 
         {/* Card 2: Live Unrealized P&L */}
-        <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
+        <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
             Live Unrealized P&L
           </span>
           <div
             className={`text-xl font-bold font-mono mt-1 tabular-nums ${
-              totalUnrealizedPnl >= 0 ? 'text-emerald-600' : 'text-rose-600'
+              totalUnrealizedPnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
             }`}
           >
             {totalUnrealizedPnl >= 0 ? '+' : ''}
             {formatINR(totalUnrealizedPnl)}
           </div>
-          <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-1 font-mono">
+          <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-mono">
             <span>{positions.length} Active Positions</span>
           </div>
         </div>
 
         {/* Card 3: Available Virtual Margin */}
-        <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
+        <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
             Available Virtual Margin
           </span>
-          <div className="text-xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1 tabular-nums">
             {formatINR(availableMargin)}
           </div>
-          <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-1 font-mono">
+          <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-mono">
             <span>Deployed: {formatINR(marginDeployed)}</span>
           </div>
         </div>
 
         {/* Card 4: Booked Realized P&L & Win Rate */}
-        <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
+        <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
             Closed Realized P&L
           </span>
           <div
             className={`text-xl font-bold font-mono mt-1 tabular-nums ${
-              totalRealizedPnl >= 0 ? 'text-emerald-600' : 'text-rose-600'
+              totalRealizedPnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
             }`}
           >
             {totalRealizedPnl >= 0 ? '+' : ''}
             {formatINR(totalRealizedPnl)}
           </div>
-          <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-1 font-mono">
+          <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-mono">
             <span>Win Rate: {winRate.toFixed(1)}% ({tradeHistory.length} trades)</span>
           </div>
         </div>
       </div>
 
+      {/* SECTION: MARKET DEPTH & ORDER BOOK (LEVEL 2) */}
+      <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+              <BarChart2 className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Market Depth & Order Book (Level 2)
+                </h3>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  Simulated
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Cumulative bid (buy) and ask (sell) depth curve around {selectedStock?.symbol} (₹{selectedStock?.ltp})
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-center">
+            <label className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+              Stock:
+            </label>
+            <select
+              value={selectedStockSymbol || selectedStock?.symbol}
+              onChange={(e) => setSelectedStockSymbol(e.target.value)}
+              className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold text-slate-900 dark:text-slate-100 cursor-pointer"
+            >
+              {stocks.map((s) => (
+                <option key={s.symbol} value={s.symbol}>
+                  {s.symbol} — {formatINR(s.ltp)} ({s.changePercent >= 0 ? '+' : ''}{s.changePercent.toFixed(2)}%)
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <DepthChart book={orderBook} height={260} theme={theme} />
+      </div>
+
       {/* VIEW SUB-NAVIGATION (OPEN POSITIONS vs TRADE HISTORY) */}
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2 rounded-t-xl">
+      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 pt-2 rounded-t-xl">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveSubTab('positions')}
@@ -427,22 +484,22 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
           id="paper-order-modal"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs"
         >
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-5 space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-md w-full p-5 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <div className="p-1 rounded bg-slate-900 text-white">
+                <div className="p-1 rounded bg-slate-900 dark:bg-slate-800 text-white">
                   <PlusCircle className="w-4 h-4 text-emerald-400" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Execute Paper Order</h3>
-                  <span className="text-[10px] font-mono text-amber-700 font-semibold bg-amber-50 px-1 rounded">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Execute Paper Order</h3>
+                  <span className="text-[10px] font-mono text-amber-700 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/60 px-1 rounded">
                     100% Simulation Mode
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => setShowOrderModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-100 cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 <XCircle className="w-4 h-4" />
               </button>
@@ -451,13 +508,13 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
             <form onSubmit={handleQuickExecute} className="space-y-3.5 text-xs">
               {/* Select Stock */}
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Select Underlying Stock
                 </label>
                 <select
                   value={selectedStockSymbol}
                   onChange={(e) => setSelectedStockSymbol(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-mono font-bold"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono font-bold"
                 >
                   {stocks.map((s) => (
                     <option key={s.symbol} value={s.symbol}>
@@ -466,11 +523,20 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
                     </option>
                   ))}
                 </select>
+
+                {/* Mini depth preview in modal */}
+                <div className="mt-2.5 p-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 font-mono mb-1">
+                    <span>Order Book Depth</span>
+                    <span>LTP: {formatINR(selectedStock?.ltp || 0)}</span>
+                  </div>
+                  <DepthChart book={orderBook} height={130} theme={theme} />
+                </div>
               </div>
 
               {/* CE vs PE */}
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Option Contract Type
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -480,7 +546,7 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
                     className={`py-2 text-xs font-bold rounded-lg border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
                       customTradeType === 'CE'
                         ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
                     }`}
                   >
                     <span>BUY CALL (CE)</span>
@@ -491,7 +557,7 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
                     className={`py-2 text-xs font-bold rounded-lg border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
                       customTradeType === 'PE'
                         ? 'bg-rose-600 text-white border-rose-600'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
                     }`}
                   >
                     <span>BUY PUT (PE)</span>
@@ -500,18 +566,18 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
               </div>
 
               {/* Order Info summary */}
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1 text-slate-600 text-[11px] font-mono">
+              <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 space-y-1 text-slate-600 dark:text-slate-300 text-[11px] font-mono">
                 <div className="flex justify-between">
                   <span>Product Type:</span>
-                  <span className="font-bold text-slate-900">MIS (Intraday Bracket)</span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100">MIS (Intraday Bracket)</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Target Ratio:</span>
-                  <span className="font-bold text-emerald-600">+35%</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400">+35%</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Stop Loss:</span>
-                  <span className="font-bold text-rose-600">-20%</span>
+                  <span className="font-bold text-rose-600 dark:text-rose-400">-20%</span>
                 </div>
               </div>
 
@@ -519,13 +585,13 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowOrderModal(false)}
-                  className="flex-1 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                  className="flex-1 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shadow-xs"
+                  className="flex-1 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 rounded-lg transition-colors cursor-pointer shadow-xs"
                 >
                   Execute Simulation Fill
                 </button>

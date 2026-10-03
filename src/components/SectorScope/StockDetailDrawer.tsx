@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { SectorStockItem, StockRadarItem } from '../../types';
 import { INITIAL_STOCKS_RADAR, formatINR, formatNumber } from '../../data/mockData';
-import { LightweightCandlestickChart } from '../StockDetail/LightweightCandlestickChart';
+
+const ChartWorkspace = React.lazy(() => import('../Charts/ChartWorkspace'));
 
 interface StockDetailDrawerProps {
   stock: SectorStockItem | null;
@@ -305,12 +306,19 @@ const isPositive = stockChangePct >= 0;
               </span>
             </div>
 
-            <LightweightCandlestickChart
-              stockSymbol={stock.symbol}
-              stockName={stock.name}
-              basePrice={stock.ltp}
-              theme={theme}
-            />
+            <React.Suspense
+              fallback={
+                <div className="h-[420px] animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-mono">
+                  Loading Chart Workspace...
+                </div>
+              }
+            >
+              <ChartWorkspace
+                symbol={stock.symbol}
+                theme={theme}
+                height={400}
+              />
+            </React.Suspense>
           </div>
 
           {/* Quant Strategy & Trading Targets Setup */}

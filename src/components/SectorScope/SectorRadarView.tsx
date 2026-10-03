@@ -37,6 +37,9 @@ import { SectorBreadthCharts } from './SectorBreadthCharts';
 import { SectorHeatmapView } from './SectorHeatmapView';
 import { SectorStockDrilldown } from './SectorStockDrilldown';
 import { StockDetailDrawer } from './StockDetailDrawer';
+import MarketHeatmap from '../Charts/MarketHeatmap';
+import type { HeatmapItem } from '../Charts/types';
+import { generateHeatmap } from '../Charts/mockChartData';
 
 interface SectorRadarViewProps {
   timePeriod: TimePeriod;
@@ -227,6 +230,26 @@ export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
     }, 50);
   };
 
+  // Map stocks radar data to HeatmapItem[] for the Treemap
+  const stockHeatmapItems: HeatmapItem[] = useMemo(() => {
+    if (stocks && stocks.length > 0) {
+      return stocks.map((s) => ({
+        name: s.symbol,
+        sector: s.sector,
+        size: Math.max(1, s.capital || Math.round(s.ltp * (s.rvol || 1))),
+        change: s.changePercent,
+      }));
+    }
+    return generateHeatmap();
+  }, [stocks]);
+
+  const handleStockHeatmapSelect = (symbol: string) => {
+    const found = stocks?.find((s) => s.symbol === symbol);
+    if (found && onSelectStock) {
+      onSelectStock(found);
+    }
+  };
+
   // Handle stock click inside constituent drilldown table
   const handleStockClick = (stock: SectorStockItem) => {
     setDrawerStock(stock);
@@ -319,11 +342,36 @@ export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
 
       {/* 4. Heatmap View (shown if presentationMode === 'both' or 'heatmap') */}
       {(presentationMode === 'both' || presentationMode === 'heatmap') && (
-        <SectorHeatmapView
-          sectors={sectors}
-          selectedSectorId={activeSector?.id}
-          onSelectSector={handleSelectSector}
-        />
+        <div className="space-y-4">
+          <SectorHeatmapView
+            sectors={sectors}
+            selectedSectorId={activeSector?.id}
+            onSelectSector={handleSelectSector}
+          />
+
+          <section id="sector-stock-treemap" className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+              <div>
+                <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span>Stock Radar Heatmap (Sector Treemap)</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                    Live Weights
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Real stock radar items grouped by sector. Size indicates capital weighting, color indicates price % change. Click any tile to open Stock Detail.
+                </p>
+              </div>
+              <p className="text-xs text-slate-400 font-mono">Simulated data</p>
+            </div>
+            <MarketHeatmap
+              items={stockHeatmapItems}
+              onSelect={handleStockHeatmapSelect}
+              height={420}
+              theme={theme}
+            />
+          </section>
+        </div>
       )}
 
       {/* 5. Sector Breadth Dual Graphs (Stock Count Breadth + Volume Breadth) */}

@@ -19,6 +19,7 @@ interface DashboardViewProps {
   onNavigateToPositions?: () => void;
   onNavigateToPaperTrading?: () => void;
   onNavigateToSectorsView?: () => void;
+  theme?: 'light' | 'dark';
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -29,6 +30,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToPositions,
   onNavigateToPaperTrading,
   onNavigateToSectorsView,
+  theme,
 }) => {
   return (
     <div id="trader-dashboard-root" className="space-y-4 sm:space-y-5 animate-in fade-in duration-150">
@@ -59,7 +61,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       />
 
       {/* SECTION 5: Market Heatmaps (Overall Market + Sector Heatmaps) */}
-      <MarketHeatmaps onSelectStock={onSelectStockBySymbol} />
+      <MarketHeatmaps stocks={stocks} onSelectStock={onSelectStockBySymbol} theme={theme} />
     </div>
   );
 };
