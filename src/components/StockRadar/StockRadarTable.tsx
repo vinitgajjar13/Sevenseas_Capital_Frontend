@@ -677,9 +677,18 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
                           </div>
                         </td>
 
-                        {/* LTP */}
+                        {/* LTP / Price */}
                         <td className={`${isCompact ? 'py-1.5' : 'py-2.5'} px-3 text-right font-mono font-bold text-slate-900 tabular-nums`}>
-                          {formatINR(stock.ltp)}
+                          <div>{formatINR(stock.ltp)}</div>
+                          <span
+                            className={`inline-block px-1 py-0.2 text-[8px] font-black uppercase tracking-wider rounded ${
+                              stock.priceType === 'LAST_CLOSE'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            }`}
+                          >
+                            {stock.priceType === 'LAST_CLOSE' ? 'LAST CLOSE' : 'LIVE'}
+                          </span>
                         </td>
 
                         {/* Change % */}

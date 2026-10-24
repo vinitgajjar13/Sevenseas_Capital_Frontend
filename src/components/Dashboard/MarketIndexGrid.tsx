@@ -19,17 +19,37 @@ export const MarketIndexGrid: React.FC<MarketIndexGridProps> = ({
 }) => {
   const indexList: MarketIndex[] = [indices.nifty50, indices.bankNifty, indices.sensex];
 
-  const getStatusBadge = (status: string = 'Market Open') => {
-    switch (status) {
+  const getStatusBadge = (idx: MarketIndex) => {
+    const isClosed = idx.priceType === 'LAST_CLOSE' || idx.marketStatus === 'Market Closed';
+    if (isClosed) {
+      return (
+        <div className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+            <span>Market Closed</span>
+          </span>
+          <span className="px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide rounded bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+            LAST CLOSE
+          </span>
+        </div>
+      );
+    }
+
+    switch (idx.marketStatus) {
       case 'Market Open':
         return (
-          <span className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-            <span className="relative flex w-1.5 h-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full w-1.5 h-1.5 bg-emerald-500"></span>
+          <div className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              <span className="relative flex w-1.5 h-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full w-1.5 h-1.5 bg-emerald-500"></span>
+              </span>
+              <span>Market Open</span>
             </span>
-            <span>Market Open</span>
-          </span>
+            <span className="px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide rounded bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+              LIVE
+            </span>
+          </div>
         );
       case 'Pre-Open':
         return (
@@ -47,10 +67,15 @@ export const MarketIndexGrid: React.FC<MarketIndexGridProps> = ({
         );
       default:
         return (
-          <span className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-            <span>Market Closed</span>
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+              <span>Market Closed</span>
+            </span>
+            <span className="px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide rounded bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+              LAST CLOSE
+            </span>
+          </div>
         );
     }
   };
@@ -90,13 +115,24 @@ export const MarketIndexGrid: React.FC<MarketIndexGridProps> = ({
                   </div>
                 </div>
 
-                {getStatusBadge(idx.marketStatus)}
+                {getStatusBadge(idx)}
               </div>
 
               {/* Middle Row: Big Current Value & Day Point / Percentage Movement */}
               <div className="flex items-baseline justify-between gap-2 my-1">
-                <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-slate-900 dark:text-slate-50 tabular-nums">
-                  {formatNumber(idx.value)}
+                <div className="flex items-baseline gap-2">
+                  <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-slate-900 dark:text-slate-50 tabular-nums">
+                    {formatNumber(idx.value)}
+                  </div>
+                  <span
+                    className={`px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded ${
+                      idx.priceType === 'LAST_CLOSE'
+                        ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700'
+                        : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700'
+                    }`}
+                  >
+                    {idx.priceType === 'LAST_CLOSE' ? 'LAST CLOSE' : 'LIVE'}
+                  </span>
                 </div>
 
                 <div

@@ -97,8 +97,19 @@ export const WatchlistStockCard: React.FC<WatchlistStockCardProps> = ({
       {/* Right: LTP, Change & Remove Button */}
       <div className="flex items-center gap-3 shrink-0">
         <div className="text-right">
-          <div className="font-mono font-bold text-sm sm:text-base text-slate-900 dark:text-white tabular-nums">
-            {formatINR(stock.ltp)}
+          <div className="flex items-center justify-end gap-1.5">
+            <span className="font-mono font-bold text-sm sm:text-base text-slate-900 dark:text-white tabular-nums">
+              {formatINR(stock.ltp)}
+            </span>
+            <span
+              className={`px-1 py-0.2 text-[8px] font-black uppercase tracking-wider rounded ${
+                stock.priceType === 'LAST_CLOSE'
+                  ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                  : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+              }`}
+            >
+              {stock.priceType === 'LAST_CLOSE' ? 'LAST CLOSE' : 'LIVE'}
+            </span>
           </div>
           <div
             className={`inline-flex items-center gap-0.5 text-xs font-mono font-semibold tabular-nums ${

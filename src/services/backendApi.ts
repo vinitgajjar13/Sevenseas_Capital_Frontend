@@ -50,8 +50,13 @@ export interface GrowwQuote {
   exchange: string;
   segment: string;
   last_price: number;
+  price?: number;
+  previousClose?: number;
   day_change?: number;
   day_change_perc?: number;
+  marketStatus?: 'OPEN' | 'CLOSED';
+  priceType?: 'LIVE' | 'LAST_CLOSE';
+  lastUpdated?: string;
   ohlc?: {
     open: number;
     high: number;
@@ -61,6 +66,48 @@ export interface GrowwQuote {
   volume?: number;
   week_52_high?: number;
   week_52_low?: number;
+}
+
+export interface MarketStatusResponse {
+  marketStatus: 'OPEN' | 'CLOSED';
+  priceType: 'LIVE' | 'LAST_CLOSE';
+  reason: 'REGULAR_TRADING' | 'WEEKEND' | 'TRADING_HOLIDAY' | 'PRE_MARKET' | 'AFTER_HOURS';
+  currentTime: string;
+  isTradingDay: boolean;
+  holidayName?: string | null;
+  lastTradingSessionDate: string;
+  previousTradingSessionDate: string;
+  nextTradingSessionTime?: string | null;
+  tradingHours: {
+    open: string;
+    close: string;
+    timezone: string;
+    exchange: string;
+  };
+}
+
+export interface MarketStockPriceItem {
+  symbol: string;
+  price: number | null;
+  previousClose: number | null;
+  change: number | null;
+  changePercent: number | null;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+  volume?: number | null;
+  lastUpdated?: string | null;
+  marketStatus: 'OPEN' | 'CLOSED';
+  priceType: 'LIVE' | 'LAST_CLOSE';
+}
+
+export interface MarketPricesResponse {
+  marketStatus: 'OPEN' | 'CLOSED';
+  priceType: 'LIVE' | 'LAST_CLOSE';
+  lastUpdated: string;
+  prices: Record<string, MarketStockPriceItem>;
+  quotes?: Record<string, MarketStockPriceItem>;
+  ltp?: Record<string, number>;
 }
 
 export interface BackendStockItem {
@@ -134,10 +181,22 @@ export interface MarketOverview {
 export interface GrowwIndexQuote {
   name: string;
   symbol: string;
-  exchange: string;
-  last_price: number;
-  day_change: number;
-  day_change_perc: number;
+  exchange?: string;
+  price?: number;
+  last_price?: number;
+  previousClose?: number;
+  change?: number;
+  day_change?: number;
+  changePercent?: number;
+  day_change_perc?: number;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+  week52High?: number | null;
+  week52Low?: number | null;
+  marketStatus?: 'OPEN' | 'CLOSED';
+  priceType?: 'LIVE' | 'LAST_CLOSE';
+  lastUpdated?: string;
   ohlc?: {
     open?: number | null;
     high?: number | null;
@@ -145,12 +204,15 @@ export interface GrowwIndexQuote {
     close?: number | null;
   };
   volume?: number | null;
-  data_source: string;
+  data_source?: string;
 }
 
 export interface GrowwMarketIndicesResponse {
-  source: string;
-  updated_at: string;
+  source?: string;
+  updated_at?: string;
+  marketStatus?: 'OPEN' | 'CLOSED';
+  priceType?: 'LIVE' | 'LAST_CLOSE';
+  lastUpdated?: string;
   indices: Partial<Record<'nifty50' | 'bankNifty' | 'sensex', GrowwIndexQuote>>;
 }
 
@@ -175,6 +237,8 @@ export interface LiveMarketTick {
   low?: number;
   close?: number;
   timestamp?: number;
+  marketStatus?: 'OPEN' | 'CLOSED';
+  priceType?: 'LIVE' | 'LAST_CLOSE';
 }
 
 // Keep API credentials on the backend. Configure deployment URLs via Vite env vars.
@@ -295,6 +359,35 @@ export async function fetchGrowwMarketIndices(): Promise<GrowwMarketIndicesRespo
     const res = await fetch(`${API_BASE_URL}/api/v1/market/indices`, {
       signal: AbortSignal.timeout(12000),
     });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch market trading hours and calendar status (live vs last close). */
+export async function fetchMarketStatus(): Promise<MarketStatusResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/market/status`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch batch prices with verified live vs closing price metadata. */
+export async function fetchMarketPrices(symbols: string[]): Promise<MarketPricesResponse | null> {
+  const unique = [...new Set(symbols.map((s) => s.trim()).filter(Boolean))];
+  if (!unique.length) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/groww/market/prices?symbols=${encodeURIComponent(unique.join(','))}`,
+      { signal: AbortSignal.timeout(8000) }
+    );
     if (!res.ok) return null;
     return await res.json();
   } catch {

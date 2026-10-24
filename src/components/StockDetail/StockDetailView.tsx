@@ -758,8 +758,19 @@ if (!s1 || !r1 || s1 >= r1) return;
         {/* Live LTP & Day Change */}
         <div className="flex items-center gap-3 self-start sm:self-auto">
           <div className="text-right">
-            <div className="text-2xl font-bold font-mono text-slate-900 tabular-nums">
-              {formatINR(stock.ltp)}
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-2xl sm:text-3xl font-black font-mono text-slate-900 tabular-nums">
+                {formatINR(stock.ltp)}
+              </span>
+              <span
+                className={`px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded ${
+                  stock.priceType === 'LAST_CLOSE'
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                    : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                }`}
+              >
+                {stock.priceType === 'LAST_CLOSE' ? 'LAST CLOSE' : 'LIVE'}
+              </span>
             </div>
             <div
               className={`flex items-center justify-end gap-0.5 text-xs font-bold font-mono ${
@@ -773,6 +784,11 @@ if (!s1 || !r1 || s1 >= r1) return;
                 {stock.changePercent.toFixed(2)}%)
               </span>
             </div>
+            {stock.priceType === 'LAST_CLOSE' && stock.prevClose && (
+              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                Session Prev Close: {formatINR(stock.prevClose)}
+              </div>
+            )}
           </div>
 
           {/* Set Alert Button */}

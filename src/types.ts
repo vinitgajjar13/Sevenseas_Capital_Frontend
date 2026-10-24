@@ -10,6 +10,7 @@ export type SectorStrength = 'STRONG_BULL' | 'MILD_BULL' | 'NEUTRAL' | 'MILD_BEA
 export type SlotBucket = 'Slot 1: Alpha Leader' | 'Slot 2: Breakout Momentum' | 'Slot 3: Trend Follower' | 'Slot 4: Mean-Reversion' | 'Slot 5: Weak / Distribution';
 
 export type MarketStatusType = 'Market Open' | 'Market Closed' | 'Pre-Open' | 'Post-Market';
+export type PriceType = 'LIVE' | 'LAST_CLOSE';
 
 export interface IndexConstituentStock {
   id?: string;
@@ -38,6 +39,8 @@ export interface MarketIndex {
   week52Low?: number;
   marketStatus?: MarketStatusType;
   constituents?: IndexConstituentStock[];
+  priceType?: PriceType;
+  lastUpdated?: string;
 }
 
 export interface MarketBreadth {
@@ -130,7 +133,12 @@ export interface StockRadarItem {
   comment?: string;
   low?: number;
   high?: number;
+  dayLow?: number;
+  dayHigh?: number;
   volume?: number;
+  priceType?: PriceType;
+  lastUpdated?: string;
+  prevClose?: number;
 }
 
 export interface PriceAlert {
@@ -457,6 +465,9 @@ export interface WatchlistStockItem {
   addedAt?: string;
   tradingSignal?: TradingSignalType;
   signalDirection?: SignalDirectionType;
+  priceType?: PriceType;
+  lastUpdated?: string;
+  prevClose?: number;
 }
 
 export type WatchlistSortField = 'name' | 'symbol' | 'price' | 'changePercent';

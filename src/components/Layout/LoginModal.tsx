@@ -4,7 +4,7 @@ import { Lock, Mail, ShieldCheck, ArrowRight, X } from 'lucide-react';
 export interface UserProfile {
   email: string;
   name: string;
-  provider: 'email' | 'google' | 'demo';
+  provider: 'email' | 'google' | 'demo' | 'groww';
   role: string;
   token?: string;
 }

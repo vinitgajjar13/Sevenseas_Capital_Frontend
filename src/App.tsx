@@ -44,6 +44,8 @@ import {
   connectGroww,
   fetchMarketOverview,
   fetchGrowwMarketIndices,
+  fetchMarketStatus,
+  fetchMarketPrices,
   fetchGrowwAuthStatus,
   fetchGrowwUserProfile,
   fetchGrowwHoldings,
@@ -61,13 +63,15 @@ import {
   MarketOverview,
   GrowwMarketIndicesResponse,
 } from './services/backendApi';
+import { MarketStatusDetail, getIndianMarketStatus } from './utils/marketHours';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [previousTab, setPreviousTab] = useState<NavTab>('dashboard');
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('1D');
   const [isMobileOpen, setIsMobileOpen] = useState<boolean>(false);
-  const [isSimulating, setIsSimulating] = useState<boolean>(true);
+  const [marketStatusDetail, setMarketStatusDetail] = useState<MarketStatusDetail>(() => getIndianMarketStatus());
+  const [isSimulating, setIsSimulating] = useState<boolean>(() => getIndianMarketStatus().marketStatus === 'OPEN');
 
   // Theme State (Light / Dark)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -116,14 +120,27 @@ export default function App() {
   const [activeStockDetail, setActiveStockDetail] = useState<StockRadarItem | null>(null);
 
   // State collections
-  const [indices, setIndices] = useState(MOCK_MARKET_INDEXES);
+  const [indices, setIndices] = useState(() => {
+    const initStatus = getIndianMarketStatus();
+    const next = { ...MOCK_MARKET_INDEXES };
+    (['nifty50', 'bankNifty', 'sensex'] as const).forEach((key) => {
+      next[key] = {
+        ...next[key],
+        marketStatus: initStatus.marketStatus === 'OPEN' ? 'Market Open' : 'Market Closed',
+        priceType: initStatus.priceType,
+      };
+    });
+    return next;
+  });
   const [breadth, setBreadth] = useState(INITIAL_BREADTH);
-  const [stocksRadar, setStocksRadar] = useState<StockRadarItem[]>(() =>
-    INITIAL_STOCKS_RADAR.map((stk) => ({
+  const [stocksRadar, setStocksRadar] = useState<StockRadarItem[]>(() => {
+    const initStatus = getIndianMarketStatus();
+    return INITIAL_STOCKS_RADAR.map((stk) => ({
       ...stk,
+      priceType: initStatus.priceType,
       marketClassification: getStockClassification(stk),
-    }))
-  );
+    }));
+  });
   const [signals, setSignals] = useState<ActiveSignal[]>(INITIAL_ACTIVE_SIGNALS);
   const [positions, setPositions] = useState<PositionItem[]>(INITIAL_POSITIONS);
   const [tradeHistory, setTradeHistory] = useState<TradeHistoryItem[]>(INITIAL_TRADE_HISTORY);
@@ -200,6 +217,7 @@ export default function App() {
       total: overview.advances + overview.declines + overview.unchanged,
     });
 
+    const currentPriceType = marketStatusDetail.priceType;
     const liveBySymbol = new Map(
       overview.stocks.map((item) => [item.symbol.toUpperCase(), item])
     );
@@ -219,6 +237,9 @@ export default function App() {
         ltp: item.ltp,
         change,
         changePercent,
+        prevClose: item.previous_close ?? stock.prevClose,
+        priceType: currentPriceType,
+        lastUpdated: overview.updated_at,
         open915: item.open ?? stock.open915,
         high: item.high ?? stock.high,
         low: item.low ?? stock.low,
@@ -238,6 +259,9 @@ export default function App() {
         ltp: item.ltp,
         change,
         changePercent: item.change_percent ?? (base ? (change / base) * 100 : watch.changePercent),
+        prevClose: item.previous_close ?? watch.prevClose,
+        priceType: currentPriceType,
+        lastUpdated: overview.updated_at,
         open915: item.open ?? watch.open915,
         high: item.high ?? watch.high,
         low: item.low ?? watch.low,
@@ -245,7 +269,7 @@ export default function App() {
         sparkline: [...(watch.sparkline || []).slice(-5), item.ltp],
       };
     }));
-  }, []);
+  }, [marketStatusDetail.priceType]);
 
   const applyLiveIndices = useCallback((response: GrowwMarketIndicesResponse | null) => {
     if (!response) return;
@@ -253,23 +277,33 @@ export default function App() {
       const next = { ...previous };
       (['nifty50', 'bankNifty', 'sensex'] as const).forEach((key) => {
         const quote = response.indices[key];
-        if (!quote || !Number.isFinite(quote.last_price)) return;
+        if (!quote) return;
+        const priceVal = quote.price ?? quote.last_price;
+        if (!priceVal || !Number.isFinite(priceVal)) return;
         const oldIndex = next[key];
         const ohlc = quote.ohlc || {};
+        const prevClose = quote.previousClose ?? ohlc.close ?? oldIndex.prevClose;
+        const chg = quote.change ?? quote.day_change ?? (prevClose ? priceVal - prevClose : oldIndex.change);
+        const chgPct = quote.changePercent ?? quote.day_change_perc ?? (prevClose ? (chg / prevClose) * 100 : oldIndex.changePercent);
         next[key] = {
           ...oldIndex,
-          value: quote.last_price,
-          change: quote.day_change ?? oldIndex.change,
-          changePercent: quote.day_change_perc ?? oldIndex.changePercent,
-          open: ohlc.open ?? oldIndex.open,
-          high: ohlc.high ?? oldIndex.high,
-          low: ohlc.low ?? oldIndex.low,
-          prevClose: ohlc.close ?? oldIndex.prevClose,
+          value: priceVal,
+          change: chg,
+          changePercent: chgPct,
+          open: quote.open ?? ohlc.open ?? oldIndex.open,
+          high: quote.high ?? ohlc.high ?? oldIndex.high,
+          low: quote.low ?? ohlc.low ?? oldIndex.low,
+          prevClose: prevClose,
+          week52High: quote.week52High ?? oldIndex.week52High,
+          week52Low: quote.week52Low ?? oldIndex.week52Low,
+          marketStatus: (quote.marketStatus === 'OPEN' || response.marketStatus === 'OPEN') ? 'Market Open' : 'Market Closed',
+          priceType: quote.priceType ?? response.priceType ?? marketStatusDetail.priceType,
+          lastUpdated: quote.lastUpdated ?? response.lastUpdated,
         };
       });
       return next;
     });
-  }, []);
+  }, [marketStatusDetail.priceType]);
 
   // Initial Backend Connection & Real-Time WebSocket Handshake
   useEffect(() => {
@@ -350,11 +384,25 @@ export default function App() {
               }
             }
 
-            // Load real quotes/OHLC after a restart when Groww is already authenticated.
-            const [overview, liveIndices] = await Promise.all([
+            // Load real quotes/OHLC and verified market calendar status.
+            const [statusRes, overview, liveIndices] = await Promise.all([
+              fetchMarketStatus(),
               fetchMarketOverview(),
               fetchGrowwMarketIndices(),
             ]);
+            if (isMounted && statusRes) {
+              setMarketStatusDetail((prev) => ({
+                ...prev,
+                marketStatus: statusRes.marketStatus,
+                priceType: statusRes.priceType,
+                reason: statusRes.reason,
+                isTradingDay: statusRes.isTradingDay,
+                holidayName: statusRes.holidayName ?? undefined,
+                lastTradingSessionDate: statusRes.lastTradingSessionDate,
+                previousTradingSessionDate: statusRes.previousTradingSessionDate,
+                formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
+              }));
+            }
             if (isMounted) {
               applyLiveOverview(overview);
               applyLiveIndices(liveIndices);
@@ -658,8 +706,9 @@ export default function App() {
 
   // Tick simulation effect for realistic market heartbeat
   useEffect(() => {
-    // Never mutate quotes with synthetic ticks while real Groww data is active.
-    if (!isSimulating || (backendConnected && growwAuth?.authenticated)) return;
+    // Never mutate quotes with synthetic ticks while real Groww data is active,
+    // or when Indian markets are closed (preserves true official closing prices).
+    if (!isSimulating || (backendConnected && growwAuth?.authenticated) || marketStatusDetail.marketStatus === 'CLOSED') return;
 
     const interval = setInterval(() => {
       // 1. Slightly fluctuate indices
@@ -877,7 +926,7 @@ export default function App() {
     }, 1200);
 
     return () => clearInterval(interval);
-  }, [isSimulating, backendConnected, growwAuth?.authenticated]);
+  }, [isSimulating, backendConnected, growwAuth?.authenticated, marketStatusDetail.marketStatus]);
 
   // Click Sector Handler: Opens Sector Detail View
   const handleSelectSector = (sectorName: string | null) => {
@@ -895,14 +944,19 @@ export default function App() {
     if (backendConnected) {
       fetchGrowwQuote(stock.symbol)
         .then((quote) => {
-          if (quote && quote.last_price) {
+          if (quote && (quote.last_price || quote.price)) {
+            const rawPrice = quote.price ?? quote.last_price;
+            const prevCls = quote.previousClose ?? quote.ohlc?.close ?? stock.prevClose;
+            const pType = quote.priceType ?? marketStatusDetail.priceType;
             setActiveStockDetail((prev) => {
               if (!prev || prev.symbol !== stock.symbol) return prev;
               return {
                 ...prev,
-                ltp: quote.last_price,
-                change: quote.day_change ?? prev.change,
-                changePercent: quote.day_change_perc ?? prev.changePercent,
+                ltp: rawPrice,
+                priceType: pType,
+                prevClose: prevCls,
+                change: quote.day_change ?? (prevCls ? +(rawPrice - prevCls).toFixed(2) : prev.change),
+                changePercent: quote.day_change_perc ?? (prevCls ? +(((rawPrice - prevCls) / prevCls) * 100).toFixed(2) : prev.changePercent),
                 dayHigh: quote.ohlc?.high ?? prev.dayHigh,
                 dayLow: quote.ohlc?.low ?? prev.dayLow,
                 open915: quote.ohlc?.open ?? prev.open915,
@@ -915,9 +969,11 @@ export default function App() {
                 if (s.symbol === stock.symbol) {
                   return {
                     ...s,
-                    ltp: quote.last_price,
-                    change: quote.day_change ?? s.change,
-                    changePercent: quote.day_change_perc ?? s.changePercent,
+                    ltp: rawPrice,
+                    priceType: pType,
+                    prevClose: prevCls,
+                    change: quote.day_change ?? (prevCls ? +(rawPrice - prevCls).toFixed(2) : s.change),
+                    changePercent: quote.day_change_perc ?? (prevCls ? +(((rawPrice - prevCls) / prevCls) * 100).toFixed(2) : s.changePercent),
                     dayHigh: quote.ohlc?.high ?? s.dayHigh,
                     dayLow: quote.ohlc?.low ?? s.dayLow,
                     volume: quote.volume ?? s.volume,
@@ -1094,13 +1150,27 @@ export default function App() {
         return;
       }
 
-      const [profile, holdings, margins, overview, liveIndices] = await Promise.all([
+      const [statusRes, profile, holdings, margins, overview, liveIndices] = await Promise.all([
+        fetchMarketStatus(),
         fetchGrowwUserProfile(),
         fetchGrowwHoldings(),
         fetchGrowwMargins(),
         fetchMarketOverview(),
         fetchGrowwMarketIndices(),
       ]);
+      if (statusRes) {
+        setMarketStatusDetail((prev) => ({
+          ...prev,
+          marketStatus: statusRes.marketStatus,
+          priceType: statusRes.priceType,
+          reason: statusRes.reason,
+          isTradingDay: statusRes.isTradingDay,
+          holidayName: statusRes.holidayName ?? undefined,
+          lastTradingSessionDate: statusRes.lastTradingSessionDate,
+          previousTradingSessionDate: statusRes.previousTradingSessionDate,
+          formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
+        }));
+      }
       if (profile) setGrowwProfile(profile);
       setGrowwHoldings(holdings);
       setGrowwMargins(margins);
@@ -1135,12 +1205,26 @@ export default function App() {
   const handleRefreshData = async () => {
     if (backendConnected) {
       try {
-        const [holdings, margins, overview, liveIndices] = await Promise.all([
+        const [statusRes, holdings, margins, overview, liveIndices] = await Promise.all([
+          fetchMarketStatus(),
           fetchGrowwHoldings(),
           fetchGrowwMargins(),
           fetchMarketOverview(),
           fetchGrowwMarketIndices(),
         ]);
+        if (statusRes) {
+          setMarketStatusDetail((prev) => ({
+            ...prev,
+            marketStatus: statusRes.marketStatus,
+            priceType: statusRes.priceType,
+            reason: statusRes.reason,
+            isTradingDay: statusRes.isTradingDay,
+            holidayName: statusRes.holidayName ?? undefined,
+            lastTradingSessionDate: statusRes.lastTradingSessionDate,
+            previousTradingSessionDate: statusRes.previousTradingSessionDate,
+            formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
+          }));
+        }
         if (overview) applyLiveOverview(overview);
         if (liveIndices) applyLiveIndices(liveIndices);
         setGrowwHoldings(holdings);
@@ -1302,6 +1386,7 @@ export default function App() {
           backendConnected={backendConnected}
           growwAuth={growwAuth}
           wsConnected={wsConnected}
+          marketStatusDetail={marketStatusDetail}
         />
 
         {/* Page Body: Dynamic View Switching adhering to strict trader workflow */}
