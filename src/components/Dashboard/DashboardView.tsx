@@ -6,6 +6,7 @@ import { MarketMovers } from './MarketMovers';
 import { TopSectors } from './TopSectors';
 import { MarketHeatmaps } from './MarketHeatmaps';
 import { PortfolioSummary } from './PortfolioSummary';
+import type { MarketOverview } from '../../services/backendApi';
 
 interface DashboardViewProps {
   indices: {
@@ -14,6 +15,8 @@ interface DashboardViewProps {
     sensex: MarketIndex;
   };
   stocks: StockRadarItem[];
+  marketOverview?: MarketOverview | null;
+  liveDataConnected?: boolean;
   onSelectStock: (stock: StockRadarItem) => void;
   onSelectStockBySymbol: (symbol: string) => void;
   onNavigateToPositions?: () => void;
@@ -25,6 +28,8 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   indices,
   stocks,
+  marketOverview,
+  liveDataConnected = false,
   onSelectStock,
   onSelectStockBySymbol,
   onNavigateToPositions,
@@ -52,12 +57,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       />
 
       {/* SECTION 3: Market Movers (Gainers, Losers, Most Active, Volume Buzzers) */}
-      <MarketMovers onSelectStock={onSelectStockBySymbol} />
+      <MarketMovers
+        onSelectStock={onSelectStockBySymbol}
+        marketOverview={marketOverview}
+        liveDataConnected={liveDataConnected}
+      />
 
       {/* SECTION 4: Top Sectors (Bullish & Bearish Participation Matrix) */}
       <TopSectors
         onSelectStock={onSelectStockBySymbol}
         onNavigateToSectorsView={onNavigateToSectorsView}
+        marketOverview={marketOverview}
+        liveDataConnected={liveDataConnected}
+        stocks={stocks}
       />
 
       {/* SECTION 5: Market Heatmaps (Overall Market + Sector Heatmaps) */}
