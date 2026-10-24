@@ -40,6 +40,8 @@ import {
 import { BellRing } from 'lucide-react';
 import {
   checkBackendHealth,
+  connectGroww,
+  fetchMarketOverview,
   fetchGrowwAuthStatus,
   fetchGrowwUserProfile,
   fetchGrowwHoldings,
@@ -52,6 +54,7 @@ import {
   GrowwUserProfile,
   GrowwHolding,
   LiveMarketTick,
+  MarketOverview,
 } from './services/backendApi';
 
 export default function App() {
@@ -154,6 +157,7 @@ export default function App() {
   const [growwAuth, setGrowwAuth] = useState<GrowwAuthStatus | null>(null);
   const [growwProfile, setGrowwProfile] = useState<GrowwUserProfile | null>(null);
   const [growwHoldings, setGrowwHoldings] = useState<GrowwHolding[]>([]);
+  const [connectPending, setConnectPending] = useState<boolean>(false);
   const wsClientRef = useRef<MarketWebSocketClient | null>(null);
   const tokenToSymbolMapRef = useRef<Map<number | string, string>>(new Map());
 
@@ -174,6 +178,59 @@ export default function App() {
       localStorage.setItem('quantradar_price_alerts', JSON.stringify(priceAlerts));
     } catch {}
   }, [priceAlerts]);
+
+  // Apply only market facts supplied by Groww. Strategy scores/signals remain separate
+  // and must not be presented as broker-provided data.
+  const applyLiveOverview = useCallback((overview: MarketOverview | null) => {
+    if (!overview) return;
+    setBreadth({
+      advances: overview.advances,
+      declines: overview.declines,
+      unchanged: overview.unchanged,
+      total: overview.advances + overview.declines + overview.unchanged,
+    });
+
+    const liveBySymbol = new Map(
+      overview.stocks.map((item) => [item.symbol.toUpperCase(), item])
+    );
+    setStocksRadar((previous) => previous.map((stock) => {
+      const item = liveBySymbol.get(stock.symbol.toUpperCase());
+      if (!item || item.ltp == null) return stock;
+      const base = item.previous_close ?? item.open ?? stock.open915;
+      const change = item.change ?? (item.ltp - base);
+      const changePercent = item.change_percent ?? (base ? (change / base) * 100 : stock.changePercent);
+      return {
+        ...stock,
+        ltp: item.ltp,
+        change,
+        changePercent,
+        open915: item.open ?? stock.open915,
+        high: item.high ?? stock.high,
+        low: item.low ?? stock.low,
+        dayHigh: item.high ?? stock.dayHigh,
+        dayLow: item.low ?? stock.dayLow,
+        volume: item.volume ?? stock.volume,
+      };
+    }));
+
+    setWatchlistStocks((previous) => previous.map((watch) => {
+      const item = liveBySymbol.get(watch.symbol.toUpperCase());
+      if (!item || item.ltp == null) return watch;
+      const base = item.previous_close ?? item.open ?? watch.open915 ?? item.ltp;
+      const change = item.change ?? item.ltp - base;
+      return {
+        ...watch,
+        ltp: item.ltp,
+        change,
+        changePercent: item.change_percent ?? (base ? (change / base) * 100 : watch.changePercent),
+        open915: item.open ?? watch.open915,
+        high: item.high ?? watch.high,
+        low: item.low ?? watch.low,
+        volume: item.volume ?? watch.volume,
+        sparkline: [...(watch.sparkline || []).slice(-5), item.ltp],
+      };
+    }));
+  }, []);
 
   // Initial Backend Connection & Real-Time WebSocket Handshake
   useEffect(() => {
@@ -200,8 +257,8 @@ export default function App() {
 
           // Check Groww Auth Status
           const auth = await fetchGrowwAuthStatus();
+          if (isMounted) setGrowwAuth(auth);
           if (isMounted && auth?.authenticated) {
-            setGrowwAuth(auth);
 
             // Fetch User Profile
             const profile = await fetchGrowwUserProfile();
@@ -310,7 +367,7 @@ export default function App() {
       isMounted = false;
       wsClientRef.current?.disconnect();
     };
-  }, []);
+  }, [applyLiveOverview]);
 
   // Audio tone notification helper for triggered price alert
   const playAlertChime = useCallback(() => {
@@ -471,7 +528,8 @@ export default function App() {
 
   // Tick simulation effect for realistic market heartbeat
   useEffect(() => {
-    if (!isSimulating) return;
+    // Never mutate quotes with synthetic ticks while real Groww data is active.
+    if (!isSimulating || (backendConnected && growwAuth?.authenticated)) return;
 
     const interval = setInterval(() => {
       // 1. Slightly fluctuate indices
@@ -689,7 +747,7 @@ export default function App() {
     }, 1200);
 
     return () => clearInterval(interval);
-  }, [isSimulating]);
+  }, [isSimulating, backendConnected, growwAuth?.authenticated]);
 
   // Click Sector Handler: Opens Sector Detail View
   const handleSelectSector = (sectorName: string | null) => {
@@ -886,10 +944,64 @@ export default function App() {
     showToast(`All ${count} open positions squared off at market price.`);
   };
 
+  const handleConnectGroww = async () => {
+    if (!backendConnected) {
+      showToast('Backend is offline. Start the FastAPI backend first.');
+      return;
+    }
+    setConnectPending(true);
+    try {
+      const result = await connectGroww();
+      if (!result) {
+        showToast('Groww connection failed. Check backend credentials and API logs.');
+        return;
+      }
+
+      const auth = await fetchGrowwAuthStatus();
+      setGrowwAuth(auth);
+      if (!auth?.authenticated) {
+        showToast('Groww authentication did not complete. Check Groww credentials.');
+        return;
+      }
+
+      const [profile, holdings, overview] = await Promise.all([
+        fetchGrowwUserProfile(),
+        fetchGrowwHoldings(),
+        fetchMarketOverview(),
+      ]);
+      if (profile) setGrowwProfile(profile);
+      setGrowwHoldings(holdings);
+      applyLiveOverview(overview);
+      setCurrentUser((prev) => ({
+        email: profile?.ucc ? `groww.${profile.ucc}@sevenseascapital.in` : (prev?.email || ''),
+        name: profile?.ucc ? `Groww User (${profile.ucc})` : (prev?.name || 'Groww User'),
+        provider: 'groww',
+        role: 'Active Broker Account',
+      }));
+      setIsSimulating(false);
+      const feed = await connectGrowwMarketFeed();
+      if (!overview) {
+        showToast('Groww connected, but market data is unavailable. Check stock symbols/tokens.');
+      } else if (!feed) {
+        showToast('Groww connected and quotes loaded; live stream could not start.');
+      } else {
+        showToast(`Groww connected. Loaded market data for ${overview.stocks.filter((item) => item.ltp != null).length} stocks.`);
+      }
+    } catch {
+      showToast('Could not connect Groww. Check backend logs and .env configuration.');
+    } finally {
+      setConnectPending(false);
+    }
+  };
+
   const handleRefreshData = async () => {
     if (backendConnected) {
       try {
-        const holdings = await fetchGrowwHoldings();
+        const [holdings, overview] = await Promise.all([
+          fetchGrowwHoldings(),
+          fetchMarketOverview(),
+        ]);
+        if (overview) applyLiveOverview(overview);
         if (holdings.length > 0) {
           setGrowwHoldings(holdings);
           const holdingSymbols = holdings.map((h) => h.trading_symbol);
@@ -992,6 +1104,7 @@ export default function App() {
               onSetAlert={handleSetAlert}
               onRemoveAlert={handleRemoveAlert}
               theme={theme}
+              marketDataConnected={Boolean(backendConnected && growwAuth?.authenticated)}
             />
           )}
 
@@ -1180,6 +1293,8 @@ export default function App() {
                 backendConnected={backendConnected}
                 growwAuth={growwAuth}
                 growwProfile={growwProfile}
+                onConnectGroww={handleConnectGroww}
+                connectPending={connectPending}
               />
             </div>
           )}
