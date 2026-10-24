@@ -13,7 +13,7 @@ import {
 import { formatINR } from '../../data/mockData';
 import { MOCK_PORTFOLIO_SUMMARY, MOCK_RECENT_TRADES } from '../../data/mock/portfolio';
 
-interface PortfolioSummaryValues {
+export interface PortfolioSummaryValues {
   totalValue: number | null;
   availableMargin: number | null;
   usedMargin: number | null;
@@ -171,7 +171,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
               </div>
               <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                 {liveDataConnected
-                  ? 'Calculated from Groww holdings cost basis and current quotes'
+                  ? <>ROI: <strong className="text-slate-700 dark:text-slate-300">{percent(p?.overallPnlPercent)}</strong> on cost basis</>
                   : <>Win Rate: <strong className="text-slate-700 dark:text-slate-300">{p?.winRate}%</strong> (Past 30 Sessions)</>}
               </div>
             </div>
