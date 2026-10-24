@@ -7,6 +7,7 @@ import { TopSectors } from './TopSectors';
 import { MarketHeatmaps } from './MarketHeatmaps';
 import { PortfolioSummary } from './PortfolioSummary';
 import type { MarketOverview } from '../../services/backendApi';
+import type { PortfolioSummaryValues } from './PortfolioSummary';
 
 interface DashboardViewProps {
   indices: {
@@ -17,6 +18,7 @@ interface DashboardViewProps {
   stocks: StockRadarItem[];
   marketOverview?: MarketOverview | null;
   liveDataConnected?: boolean;
+  liveSummary?: PortfolioSummaryValues | null;
   onSelectStock: (stock: StockRadarItem) => void;
   onSelectStockBySymbol: (symbol: string) => void;
   onNavigateToPositions?: () => void;
@@ -30,6 +32,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   stocks,
   marketOverview,
   liveDataConnected = false,
+  liveSummary = null,
   onSelectStock,
   onSelectStockBySymbol,
   onNavigateToPositions,
@@ -48,6 +51,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <PortfolioSummary
         onNavigateToPositions={onNavigateToPositions}
         onNavigateToPaperTrading={onNavigateToPaperTrading}
+        liveDataConnected={liveDataConnected}
+        liveSummary={liveSummary}
       />
 
       {/* SECTION 2: Market Index Cards (NIFTY 50, BANK NIFTY, SENSEX) */}
