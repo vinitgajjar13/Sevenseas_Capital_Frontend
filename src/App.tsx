@@ -407,6 +407,55 @@ export default function App() {
                   volume: tick.volume_traded ?? tick.volume ?? prev.volume,
                 };
               });
+              setMarketOverview((previous) => {
+                if (!previous) return previous;
+                const stocks = previous.stocks.map((row) => {
+                  if (row.symbol.toUpperCase() !== symbolKey) return row;
+                  const base = row.previous_close ?? previousCloseRef.current.get(symbolKey) ?? row.open ?? tickPrice;
+                  const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
+                  return {
+                    ...row,
+                    ltp: tickPrice,
+                    change: dayChange,
+                    change_percent: tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : row.change_percent),
+                    open: tick.open ?? row.open,
+                    high: tick.high ?? row.high,
+                    low: tick.low ?? row.low,
+                    volume: tick.volume_traded ?? tick.volume ?? row.volume,
+                    data_source: 'groww',
+                  };
+                });
+                const known = stocks.filter((row) => row.ltp != null && row.change_percent != null);
+                const advances = known.filter((row) => (row.change_percent ?? 0) > 0).length;
+                const declines = known.filter((row) => (row.change_percent ?? 0) < 0).length;
+                const unchanged = known.filter((row) => row.change_percent === 0).length;
+                const sectors = previous.sectors.map((sector) => {
+                  const members = stocks.filter((row) => row.sector === sector.sector);
+                  const evaluated = members.filter((row) => row.ltp != null && row.change_percent != null);
+                  const positives = evaluated.filter((row) => (row.change_percent ?? 0) > 0).length;
+                  const negatives = evaluated.filter((row) => (row.change_percent ?? 0) < 0).length;
+                  return {
+                    ...sector,
+                    total: members.length,
+                    advances: positives,
+                    declines: negatives,
+                    unchanged: evaluated.length - positives - negatives,
+                    average_change_percent: evaluated.length
+                      ? evaluated.reduce((sum, row) => sum + (row.change_percent ?? 0), 0) / evaluated.length
+                      : null,
+                  };
+                });
+                setBreadth({ advances, declines, unchanged, total: known.length });
+                return {
+                  ...previous,
+                  updated_at: new Date().toISOString(),
+                  stocks,
+                  sectors,
+                  advances,
+                  declines,
+                  unchanged,
+                };
+              });
               setWatchlistStocks((prev) => prev.map((stock) => {
                 if (stock.symbol.toUpperCase() !== symbolKey) return stock;
                 const base = previousCloseRef.current.get(symbolKey) ?? stock.open915 ?? tickPrice;
