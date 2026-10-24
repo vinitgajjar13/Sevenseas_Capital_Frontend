@@ -314,7 +314,14 @@ export default function App() {
               }
             }
 
-            // Trigger backend feed connection
+            // Load real quotes/OHLC after a restart when Groww is already authenticated.
+            const overview = await fetchMarketOverview();
+            if (isMounted && overview) {
+              applyLiveOverview(overview);
+              setIsSimulating(false);
+            }
+
+            // Trigger backend feed connection.
             connectGrowwMarketFeed().catch(() => {});
           }
 
