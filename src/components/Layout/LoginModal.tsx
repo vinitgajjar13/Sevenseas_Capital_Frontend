@@ -8,106 +8,137 @@ export interface UserProfile {
   role: string;
   token?: string;
 }
+import {
+  Lock,
+  User,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+  ArrowRight,
+  X,
+  KeyRound,
+  CheckCircle2,
+  AlertCircle,
+  ArrowLeft,
+} from 'lucide-react';
+import { authenticateUser, resetUserPassword, AuthUser } from '../../services/authService';
+
+export type UserProfile = AuthUser;
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose?: () => void;
   onLoginSuccess: (user: UserProfile) => void;
-  initialEmail?: string;
+  initialUsername?: string;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
   isOpen,
   onClose,
   onLoginSuccess,
-  initialEmail = 'trader@sevenseascapital.in',
+  initialUsername = 'Sevenseas',
 }) => {
-  const [email, setEmail] = useState(initialEmail);
-  const [password, setPassword] = useState('••••••••');
+  const [viewMode, setViewMode] = useState<'login' | 'forgot'>('login');
+  const [username, setUsername] = useState(initialUsername);
+  const [password, setPassword] = useState('Sevenseas@1211');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Forgot password state
+  const [resetUsername, setResetUsername] = useState('Sevenseas');
+  const [recoveryCode, setRecoveryCode] = useState('7777');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+
   if (!isOpen) return null;
 
-  const handleEmailPasswordSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !email.includes('@')) {
-      setError('Please enter a valid email address');
+    if (!username.trim()) {
+      setError('Please enter your username.');
       return;
     }
-    if (!password || password.length < 4) {
-      setError('Password must be at least 4 characters');
+    if (!password) {
+      setError('Please enter your password.');
       return;
     }
 
     setIsLoading(true);
     setError(null);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      const user: UserProfile = {
-        email,
-        name: email.split('@')[0].toUpperCase(),
-        provider: 'email',
-        role: 'Pro Trader (13y Exp)',
-        token: `sevenseas-token-${Date.now()}`,
-      };
-      localStorage.setItem('quantradar_user', JSON.stringify(user));
-      onLoginSuccess(user);
+    const result = await authenticateUser(username, password);
+    setIsLoading(false);
+
+    if (result.success && result.user) {
+      onLoginSuccess(result.user);
       if (onClose) onClose();
-    }, 400);
+    } else {
+      setError(result.error || 'Authentication failed. Please verify credentials.');
+    }
   };
 
-  const handleGoogleLogin = () => {
-    setIsLoading(true);
-    setError(null);
+  const handleResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError(null);
+    setResetSuccess(null);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      const user: UserProfile = {
-        email: 'karshalavinit1289@gmail.com',
-        name: 'Vinit K. (Pro Trader)',
-        provider: 'google',
-        role: 'Pro Trader (13y Exp)',
-        token: `sevenseas-google-${Date.now()}`,
-      };
-      localStorage.setItem('quantradar_user', JSON.stringify(user));
-      onLoginSuccess(user);
-      if (onClose) onClose();
-    }, 400);
-  };
+    if (!resetUsername.trim()) {
+      setResetError('Username is required.');
+      return;
+    }
+    if (!recoveryCode.trim()) {
+      setResetError('Security Recovery Code is required.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setResetError('New password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setResetError('New password and Confirm password do not match.');
+      return;
+    }
 
-  const handleQuickDemo = () => {
-    const user: UserProfile = {
-      email: 'lead.trader@sevenseascapital.in',
-      name: 'Terminal Master',
-      provider: 'demo',
-      role: 'Senior Trader (13y Exp)',
-      token: `sevenseas-demo-${Date.now()}`,
-    };
-    localStorage.setItem('quantradar_user', JSON.stringify(user));
-    onLoginSuccess(user);
-    if (onClose) onClose();
+    setIsResetting(true);
+    const res = await resetUserPassword(resetUsername, recoveryCode, newPassword);
+    setIsResetting(false);
+
+    if (res.success) {
+      setResetSuccess(res.message);
+      setUsername(resetUsername);
+      setPassword(newPassword);
+      setTimeout(() => {
+        setViewMode('login');
+        setResetSuccess(null);
+      }, 1500);
+    } else {
+      setResetError(res.message);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
       <div
         id="login-dialog"
-        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="w-full max-w-md bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden font-display"
       >
         {/* Terminal Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-slate-900 dark:bg-slate-950 text-white border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span className="font-mono text-xs font-bold tracking-wider uppercase text-slate-200">
-              Sevenseas Capital Trading Terminal Login
+        <div className="flex items-center justify-between px-5 py-4 bg-slate-950 text-white border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-bold text-xs tracking-wider uppercase text-slate-200">
+              SEVENSEAS TRADING TERMINAL LOGIN
             </span>
           </div>
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
+              className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
               aria-label="Close login dialog"
             >
               <X className="w-4 h-4" />
@@ -115,114 +146,219 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           )}
         </div>
 
-        <div className="p-6 space-y-5">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Sign in to Terminal</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Access real-time NSE/BSE market indices, sector participation, and pro stock setups.
-            </p>
-          </div>
+        <div className="p-6">
+          {viewMode === 'login' ? (
+            <div>
+              <div className="mb-5">
+                <h2 className="text-lg font-bold text-white tracking-tight">
+                  Sign In to Terminal
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5 font-sans">
+                  Institutional access for Indian market radar & quant systems
+                </p>
+              </div>
 
-          {error && (
-            <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-400 text-xs font-medium">
-              {error}
+              {error && (
+                <div className="mb-4 p-3 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span className="font-sans">{error}</span>
+                </div>
+              )}
+
+              {resetSuccess && (
+                <div className="mb-4 p-3 rounded-xl bg-emerald-950/60 border border-emerald-800 text-emerald-200 text-xs flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <span className="font-sans">{resetSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleLoginSubmit} className="space-y-4">
+                {/* Username */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Enter User Name
+                  </label>
+                  <div className="relative rounded-xl border border-slate-700 bg-slate-950/80 focus-within:border-indigo-500">
+                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Sevenseas"
+                      className="w-full pl-10 pr-3 py-2.5 bg-transparent text-sm text-white placeholder-slate-500 focus:outline-hidden font-medium"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Password with Eye Toggle */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('forgot')}
+                      className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <div className="relative rounded-xl border border-slate-700 bg-slate-950/80 focus-within:border-indigo-500">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Sevenseas@1211"
+                      className="w-full pl-10 pr-10 py-2.5 bg-transparent text-sm text-white placeholder-slate-500 focus:outline-hidden font-medium"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-200 cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Security strip */}
+                <div className="flex items-center justify-between text-[11px] text-slate-400 font-sans pt-1">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>256-Bit Encrypted Session</span>
+                  </span>
+                  <span className="text-slate-500">ISO 27001 Protocol</span>
+                </div>
+
+                {/* Submit button */}
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full mt-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 cursor-pointer disabled:opacity-60"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      <span>Authenticating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Sign In with Credentials</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center gap-2.5 pb-4 border-b border-slate-800 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('login')}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h2 className="text-base font-bold text-white tracking-tight">
+                    Reset Terminal Password
+                  </h2>
+                  <p className="text-xs text-slate-400 font-sans">
+                    Update database credentials
+                  </p>
+                </div>
+              </div>
+
+              {resetError && (
+                <div className="mb-3 p-2.5 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-200 text-xs">
+                  {resetError}
+                </div>
+              )}
+
+              <form onSubmit={handleResetSubmit} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    value={resetUsername}
+                    onChange={(e) => setResetUsername(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-hidden"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                      Security Code / PIN
+                    </label>
+                    <span className="text-[10px] text-indigo-400">PIN: 7777</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={recoveryCode}
+                    onChange={(e) => setRecoveryCode(e.target.value)}
+                    placeholder="7777"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-hidden font-mono"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                    New Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Min 6 characters"
+                      className="w-full px-3 pr-9 py-2 text-xs rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-hidden"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-200"
+                    >
+                      {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                    Confirm New Password
+                  </label>
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repeat password"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-hidden"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isResetting}
+                  className="w-full mt-2 py-2.5 px-3 rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-500 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Update Password in Database</span>
+                </button>
+              </form>
             </div>
           )}
-
-          {/* Email / Password Form */}
-          <form onSubmit={handleEmailPasswordSubmit} className="space-y-3.5">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Trader Email
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="trader@domain.com"
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900 dark:focus:ring-slate-400 font-mono text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900 dark:focus:ring-slate-400 font-mono text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800"
-                  required
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer"
-            >
-              <span>{isLoading ? 'Authenticating...' : 'Sign In with Email'}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </form>
-
-          {/* Divider */}
-          <div className="relative flex items-center justify-center">
-            <div className="border-t border-slate-200 dark:border-slate-800 w-full" />
-            <span className="bg-white dark:bg-slate-900 px-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider relative">
-              OR
-            </span>
-          </div>
-
-          {/* Google Login Button */}
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            disabled={isLoading}
-            className="w-full py-2.5 px-4 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-2.5 shadow-2xs cursor-pointer"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.04 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-              />
-            </svg>
-            <span>Continue with Google</span>
-          </button>
-
-          {/* Quick Trader Bypass */}
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px]">
-            <span className="text-slate-400">Quick MVP Preview:</span>
-            <button
-              type="button"
-              onClick={handleQuickDemo}
-              className="text-slate-900 dark:text-slate-200 hover:text-slate-700 dark:hover:text-white font-semibold underline underline-offset-2 flex items-center gap-1 cursor-pointer"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Instant Pro Login</span>
-            </button>
-          </div>
         </div>
       </div>
     </div>

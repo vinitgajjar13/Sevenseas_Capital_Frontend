@@ -7,3 +7,4 @@ export * from './Trading';
 export * from './Watchlist';
 export * from './Settings';
 export * from './Charts';
+export * from './Auth';
