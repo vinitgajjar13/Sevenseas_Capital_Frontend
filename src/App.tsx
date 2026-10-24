@@ -157,6 +157,7 @@ export default function App() {
   const [growwAuth, setGrowwAuth] = useState<GrowwAuthStatus | null>(null);
   const [growwProfile, setGrowwProfile] = useState<GrowwUserProfile | null>(null);
   const [growwHoldings, setGrowwHoldings] = useState<GrowwHolding[]>([]);
+  const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null);
   const [connectPending, setConnectPending] = useState<boolean>(false);
   const wsClientRef = useRef<MarketWebSocketClient | null>(null);
   const tokenToSymbolMapRef = useRef<Map<number | string, string>>(new Map());
@@ -184,6 +185,7 @@ export default function App() {
   // and must not be presented as broker-provided data.
   const applyLiveOverview = useCallback((overview: MarketOverview | null) => {
     if (!overview) return;
+    setMarketOverview(overview);
     setBreadth({
       advances: overview.advances,
       declines: overview.declines,
@@ -1071,6 +1073,13 @@ export default function App() {
     showToast('Signed out from trading session');
   };
 
+  const liveDataConnected = Boolean(backendConnected && growwAuth?.authenticated);
+  const dashboardStocks = liveDataConnected && marketOverview
+    ? stocksRadar.filter((stock) => marketOverview.stocks.some(
+        (item) => item.symbol.toUpperCase() === stock.symbol.toUpperCase() && item.ltp != null
+      ))
+    : stocksRadar;
+
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-150">
       {/* Toast Notification */}
@@ -1144,7 +1153,9 @@ export default function App() {
           {activeTab === 'dashboard' && (
             <DashboardView
               indices={indices}
-              stocks={stocksRadar}
+              stocks={dashboardStocks}
+              marketOverview={marketOverview}
+              liveDataConnected={liveDataConnected}
               onSelectStock={handleSelectStock}
               onSelectStockBySymbol={(symbol) => {
                 const found =
