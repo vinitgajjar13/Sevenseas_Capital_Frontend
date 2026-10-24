@@ -42,6 +42,7 @@ import {
   checkBackendHealth,
   connectGroww,
   fetchMarketOverview,
+  fetchGrowwMarketIndices,
   fetchGrowwAuthStatus,
   fetchGrowwUserProfile,
   fetchGrowwHoldings,
@@ -55,6 +56,7 @@ import {
   GrowwHolding,
   LiveMarketTick,
   MarketOverview,
+  GrowwMarketIndicesResponse,
 } from './services/backendApi';
 
 export default function App() {
@@ -240,6 +242,30 @@ export default function App() {
     }));
   }, []);
 
+  const applyLiveIndices = useCallback((response: GrowwMarketIndicesResponse | null) => {
+    if (!response) return;
+    setIndices((previous) => {
+      const next = { ...previous };
+      (['nifty50', 'bankNifty', 'sensex'] as const).forEach((key) => {
+        const quote = response.indices[key];
+        if (!quote || !Number.isFinite(quote.last_price)) return;
+        const oldIndex = next[key];
+        const ohlc = quote.ohlc || {};
+        next[key] = {
+          ...oldIndex,
+          value: quote.last_price,
+          change: quote.day_change ?? oldIndex.change,
+          changePercent: quote.day_change_perc ?? oldIndex.changePercent,
+          open: ohlc.open ?? oldIndex.open,
+          high: ohlc.high ?? oldIndex.high,
+          low: ohlc.low ?? oldIndex.low,
+          prevClose: ohlc.close ?? oldIndex.prevClose,
+        };
+      });
+      return next;
+    });
+  }, []);
+
   // Initial Backend Connection & Real-Time WebSocket Handshake
   useEffect(() => {
     let isMounted = true;
@@ -315,10 +341,14 @@ export default function App() {
             }
 
             // Load real quotes/OHLC after a restart when Groww is already authenticated.
-            const overview = await fetchMarketOverview();
-            if (isMounted && overview) {
+            const [overview, liveIndices] = await Promise.all([
+              fetchMarketOverview(),
+              fetchGrowwMarketIndices(),
+            ]);
+            if (isMounted) {
               applyLiveOverview(overview);
-              setIsSimulating(false);
+              applyLiveIndices(liveIndices);
+              if (overview || liveIndices) setIsSimulating(false);
             }
 
             // Trigger backend feed connection.
@@ -408,7 +438,7 @@ export default function App() {
       isMounted = false;
       wsClientRef.current?.disconnect();
     };
-  }, [applyLiveOverview]);
+  }, [applyLiveOverview, applyLiveIndices]);
 
   // Audio tone notification helper for triggered price alert
   const playAlertChime = useCallback(() => {
@@ -1005,14 +1035,16 @@ export default function App() {
         return;
       }
 
-      const [profile, holdings, overview] = await Promise.all([
+      const [profile, holdings, overview, liveIndices] = await Promise.all([
         fetchGrowwUserProfile(),
         fetchGrowwHoldings(),
         fetchMarketOverview(),
+        fetchGrowwMarketIndices(),
       ]);
       if (profile) setGrowwProfile(profile);
       setGrowwHoldings(holdings);
       applyLiveOverview(overview);
+      applyLiveIndices(liveIndices);
       setCurrentUser((prev) => ({
         email: profile?.ucc ? `groww.${profile.ucc}@sevenseascapital.in` : (prev?.email || ''),
         name: profile?.ucc ? `Groww User (${profile.ucc})` : (prev?.name || 'Groww User'),
@@ -1021,12 +1053,14 @@ export default function App() {
       }));
       setIsSimulating(false);
       const feed = await connectGrowwMarketFeed();
-      if (!overview) {
+      if (!overview && (!liveIndices || Object.keys(liveIndices.indices).length === 0)) {
         showToast('Groww connected, but market data is unavailable. Check stock symbols/tokens.');
       } else if (!feed) {
         showToast('Groww connected and quotes loaded; live stream could not start.');
       } else {
-        showToast(`Groww connected. Loaded market data for ${overview.stocks.filter((item) => item.ltp != null).length} stocks.`);
+        const stocksLoaded = overview?.stocks.filter((item) => item.ltp != null).length ?? 0;
+        const indexesLoaded = liveIndices ? Object.keys(liveIndices.indices).length : 0;
+        showToast(`Groww connected: ${stocksLoaded} stocks and ${indexesLoaded} indices loaded.`);
       }
     } catch {
       showToast('Could not connect Groww. Check backend logs and .env configuration.');
@@ -1038,11 +1072,13 @@ export default function App() {
   const handleRefreshData = async () => {
     if (backendConnected) {
       try {
-        const [holdings, overview] = await Promise.all([
+        const [holdings, overview, liveIndices] = await Promise.all([
           fetchGrowwHoldings(),
           fetchMarketOverview(),
+          fetchGrowwMarketIndices(),
         ]);
         if (overview) applyLiveOverview(overview);
+        if (liveIndices) applyLiveIndices(liveIndices);
         if (holdings.length > 0) {
           setGrowwHoldings(holdings);
           const holdingSymbols = holdings.map((h) => h.trading_symbol);
