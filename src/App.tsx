@@ -46,6 +46,7 @@ import {
   fetchGrowwAuthStatus,
   fetchGrowwUserProfile,
   fetchGrowwHoldings,
+  fetchGrowwMargins,
   fetchGrowwBatchLTP,
   fetchGrowwQuote,
   connectGrowwMarketFeed,
@@ -54,6 +55,7 @@ import {
   GrowwAuthStatus,
   GrowwUserProfile,
   GrowwHolding,
+  GrowwMargins,
   LiveMarketTick,
   MarketOverview,
   GrowwMarketIndicesResponse,
@@ -159,6 +161,8 @@ export default function App() {
   const [growwAuth, setGrowwAuth] = useState<GrowwAuthStatus | null>(null);
   const [growwProfile, setGrowwProfile] = useState<GrowwUserProfile | null>(null);
   const [growwHoldings, setGrowwHoldings] = useState<GrowwHolding[]>([]);
+  const [growwMargins, setGrowwMargins] = useState<GrowwMargins | null>(null);
+  const [growwHoldingLtps, setGrowwHoldingLtps] = useState<Record<string, number>>({});
   const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null);
   const [connectPending, setConnectPending] = useState<boolean>(false);
   const wsClientRef = useRef<MarketWebSocketClient | null>(null);
@@ -311,14 +315,19 @@ export default function App() {
               });
             }
 
-            // Fetch Demat Holdings
-            const holdings = await fetchGrowwHoldings();
-            if (isMounted && holdings.length > 0) {
+            // Fetch actual holdings and account funds through the existing backend APIs.
+            const [holdings, margins] = await Promise.all([
+              fetchGrowwHoldings(),
+              fetchGrowwMargins(),
+            ]);
+            if (isMounted) {
               setGrowwHoldings(holdings);
-
-              // Query batch LTP for holdings
+              setGrowwMargins(margins);
+            }
+            if (holdings.length > 0) {
               const holdingSymbols = holdings.map((h) => h.trading_symbol);
               const holdingLtps = await fetchGrowwBatchLTP(holdingSymbols);
+              if (isMounted) setGrowwHoldingLtps(holdingLtps);
               if (isMounted && Object.keys(holdingLtps).length > 0) {
                 setStocksRadar((prev) =>
                   prev.map((s) => {
@@ -1084,14 +1093,18 @@ export default function App() {
         return;
       }
 
-      const [profile, holdings, overview, liveIndices] = await Promise.all([
+      const [profile, holdings, margins, overview, liveIndices] = await Promise.all([
         fetchGrowwUserProfile(),
         fetchGrowwHoldings(),
+        fetchGrowwMargins(),
         fetchMarketOverview(),
         fetchGrowwMarketIndices(),
       ]);
       if (profile) setGrowwProfile(profile);
       setGrowwHoldings(holdings);
+      setGrowwMargins(margins);
+      const holdingLtps = await fetchGrowwBatchLTP(holdings.map((holding) => holding.trading_symbol));
+      setGrowwHoldingLtps(holdingLtps);
       applyLiveOverview(overview);
       applyLiveIndices(liveIndices);
       setCurrentUser((prev) => ({
@@ -1121,17 +1134,19 @@ export default function App() {
   const handleRefreshData = async () => {
     if (backendConnected) {
       try {
-        const [holdings, overview, liveIndices] = await Promise.all([
+        const [holdings, margins, overview, liveIndices] = await Promise.all([
           fetchGrowwHoldings(),
+          fetchGrowwMargins(),
           fetchMarketOverview(),
           fetchGrowwMarketIndices(),
         ]);
         if (overview) applyLiveOverview(overview);
         if (liveIndices) applyLiveIndices(liveIndices);
+        setGrowwHoldings(holdings);
+        setGrowwMargins(margins);
+        const holdingLtps = await fetchGrowwBatchLTP(holdings.map((holding) => holding.trading_symbol));
+        setGrowwHoldingLtps(holdingLtps);
         if (holdings.length > 0) {
-          setGrowwHoldings(holdings);
-          const holdingSymbols = holdings.map((h) => h.trading_symbol);
-          const holdingLtps = await fetchGrowwBatchLTP(holdingSymbols);
           if (Object.keys(holdingLtps).length > 0) {
             setStocksRadar((prev) =>
               prev.map((s) => {
