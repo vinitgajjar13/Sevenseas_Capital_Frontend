@@ -21,6 +21,7 @@ import {
 } from './types';
 import { getInitialWatchlist, MasterStockEntry } from './data/mock/watchlistData';
 import { getStockClassification } from './utils/stockRanking';
+import type { PortfolioSummaryValues } from './components/Dashboard/PortfolioSummary';
 import {
   Sidebar,
   Header,
@@ -1189,6 +1190,67 @@ export default function App() {
         : [])
     : stocksRadar;
 
+  const livePortfolioSummary: PortfolioSummaryValues | null = liveDataConnected
+    ? (() => {
+        const rows = growwHoldings.map((holding) => {
+          const rawSymbol = holding.trading_symbol.toUpperCase();
+          const cleanSymbol = rawSymbol
+            .replace(/^(NSE|BSE)[-_]/, '')
+            .replace(/-(EQ|BE)$/, '');
+          const marketRow = marketOverview?.stocks.find((row) =>
+            [row.symbol.toUpperCase(), (row.groww_symbol || '').toUpperCase()]
+              .some((candidate) => candidate === rawSymbol || candidate === cleanSymbol || candidate.endsWith(`-${cleanSymbol}`))
+              && row.ltp != null
+          );
+          const batchLtp =
+            growwHoldingLtps[`NSE_${rawSymbol}`] ??
+            growwHoldingLtps[`NSE_${cleanSymbol}`] ??
+            growwHoldingLtps[rawSymbol] ??
+            growwHoldingLtps[cleanSymbol];
+          const ltp = marketRow?.ltp ?? (batchLtp != null ? Number(batchLtp) : null);
+          return {
+            quantity: Number(holding.quantity || 0),
+            averagePrice: Number(holding.average_price || 0),
+            ltp: ltp != null && Number.isFinite(ltp) ? ltp : null,
+            change: marketRow?.change ?? null,
+          };
+        });
+
+        const allHoldingsPriced = rows.every((row) => row.ltp != null);
+        const invested = rows.reduce((sum, row) => sum + row.quantity * row.averagePrice, 0);
+        const currentValue = allHoldingsPriced
+          ? rows.reduce((sum, row) => sum + row.quantity * (row.ltp ?? 0), 0)
+          : null;
+        const overallPnl = currentValue == null ? null : currentValue - invested;
+        const allDayChangesAvailable = rows.every((row) => row.change != null);
+        const dayPnl = allDayChangesAvailable
+          ? rows.reduce((sum, row) => sum + row.quantity * (row.change ?? 0), 0)
+          : null;
+        const priorValue = allDayChangesAvailable
+          ? rows.reduce((sum, row) => {
+              const ltp = row.ltp ?? 0;
+              return sum + row.quantity * (ltp - (row.change ?? 0));
+            }, 0)
+          : 0;
+        const clearCash = growwMargins?.clear_cash;
+        return {
+          totalValue: currentValue != null && clearCash != null
+            ? currentValue + Number(clearCash)
+            : null,
+          availableMargin: growwMargins
+            ? Number(growwMargins.clear_cash ?? 0) + Number(growwMargins.collateral_available ?? 0)
+            : null,
+          usedMargin: growwMargins?.net_margin_used ?? null,
+          dayPnl,
+          dayPnlPercent: dayPnl != null && priorValue > 0 ? (dayPnl / priorValue) * 100 : null,
+          overallPnl,
+          overallPnlPercent: overallPnl != null && invested > 0 ? (overallPnl / invested) * 100 : null,
+          openPositionsCount: growwHoldings.length,
+          winRate: null,
+        };
+      })()
+    : null;
+
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-150">
       {/* Toast Notification */}
@@ -1265,6 +1327,7 @@ export default function App() {
               stocks={dashboardStocks}
               marketOverview={marketOverview}
               liveDataConnected={liveDataConnected}
+              liveSummary={livePortfolioSummary}
               onSelectStock={handleSelectStock}
               onSelectStockBySymbol={(symbol) => {
                 const found =
