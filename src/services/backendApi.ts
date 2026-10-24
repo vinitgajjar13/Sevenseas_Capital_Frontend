@@ -120,6 +120,29 @@ export interface MarketOverview {
   stocks: MarketOverviewStock[];
 }
 
+export interface GrowwIndexQuote {
+  name: string;
+  symbol: string;
+  exchange: string;
+  last_price: number;
+  day_change: number;
+  day_change_perc: number;
+  ohlc?: {
+    open?: number | null;
+    high?: number | null;
+    low?: number | null;
+    close?: number | null;
+  };
+  volume?: number | null;
+  data_source: string;
+}
+
+export interface GrowwMarketIndicesResponse {
+  source: string;
+  updated_at: string;
+  indices: Partial<Record<'nifty50' | 'bankNifty' | 'sensex', GrowwIndexQuote>>;
+}
+
 export interface HistoricalCandleResponse {
   symbol: string;
   candle_interval: string;
@@ -247,6 +270,19 @@ export async function fetchMarketOverview(limit = 250): Promise<MarketOverview |
   try {
     const res = await fetch(`${API_BASE_URL}/api/v1/market/overview?limit=${encodeURIComponent(String(limit))}`, {
       signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch Groww index quotes for the dashboard index cards. */
+export async function fetchGrowwMarketIndices(): Promise<GrowwMarketIndicesResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/market/indices`, {
+      signal: AbortSignal.timeout(12000),
     });
     if (!res.ok) return null;
     return await res.json();
