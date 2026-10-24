@@ -334,9 +334,10 @@ export async function fetchGrowwHistoricalCandles(
         return Math.floor(value > 1e12 ? value / 1000 : value);
       }
       if (typeof value === 'string') {
-        const normalized = value.includes('T') || /[+-]\d{2}:?\d{2}$/.test(value)
-          ? value
-          : `${value.replace(' ', 'T')}+05:30`;
+        // Groww's candle API may return an ISO-like timestamp without an offset.
+        // Treat those as exchange-local IST so charts line up on browsers in any timezone.
+        const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+        const normalized = hasTimezone ? value : `${value.replace(' ', 'T')}+05:30`;
         const parsed = Date.parse(normalized);
         if (Number.isFinite(parsed)) return Math.floor(parsed / 1000);
       }
