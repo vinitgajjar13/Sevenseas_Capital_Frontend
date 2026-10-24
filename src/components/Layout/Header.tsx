@@ -14,6 +14,7 @@ import {
 import { TimePeriod, StockRadarItem } from '../../types';
 import { exportRadarToCSV } from '../../utils/formatters';
 import { UserProfile } from './LoginModal';
+import { GrowwAuthStatus } from '../../services/backendApi';
 
 interface HeaderProps {
   timePeriod: TimePeriod;
@@ -29,6 +30,9 @@ interface HeaderProps {
   onLogout?: () => void;
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
+  backendConnected?: boolean;
+  growwAuth?: GrowwAuthStatus | null;
+  wsConnected?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -45,6 +49,9 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   theme = 'light',
   onToggleTheme,
+  backendConnected = false,
+  growwAuth = null,
+  wsConnected = false,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [countdown, setCountdown] = useState<string>('');
@@ -111,6 +118,39 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="relative inline-flex rounded-full w-2 h-2 bg-emerald-500"></span>
           </span>
           <span className="tracking-tight font-mono">NSE Live Market</span>
+        </div>
+
+        {/* Backend / Broker Status Badge */}
+        <div
+          id="badge-backend-status"
+          className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full border shadow-2xs transition-colors ${
+            backendConnected
+              ? 'bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+              : 'bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+          }`}
+          title={
+            backendConnected
+              ? `FastAPI Backend: Connected (:8000) | Groww UCC: ${growwAuth?.ucc || 'Active'} | Feed: ${wsConnected ? 'WebSocket Live' : 'Polling Ready'}`
+              : 'Backend disconnected - running on offline 213 stocks matrix'
+          }
+        >
+          <span className="relative flex w-2 h-2">
+            {backendConnected && wsConnected && (
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+            )}
+            <span
+              className={`relative inline-flex rounded-full w-2 h-2 ${
+                backendConnected ? (wsConnected ? 'bg-blue-500' : 'bg-emerald-500') : 'bg-amber-500'
+              }`}
+            ></span>
+          </span>
+          <span className="tracking-tight font-mono">
+            {backendConnected
+              ? growwAuth?.ucc
+                ? `Groww: ${growwAuth.ucc}`
+                : 'FastAPI :8000'
+              : 'Local Matrix'}
+          </span>
         </div>
       </div>
 

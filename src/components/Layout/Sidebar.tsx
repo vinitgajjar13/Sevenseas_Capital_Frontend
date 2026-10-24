@@ -21,6 +21,7 @@ interface SidebarProps {
   openPositionsCount: number;
   totalUnrealizedPnl: number;
   activeSignalsCount: number;
+  stocksCount?: number;
   isMobileOpen: boolean;
   setIsMobileOpen: (open: boolean) => void;
   currentUser?: UserProfile | null;
@@ -34,6 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   openPositionsCount,
   totalUnrealizedPnl,
   activeSignalsCount,
+  stocksCount = 213,
   isMobileOpen,
   setIsMobileOpen,
   currentUser,
@@ -52,14 +54,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'sector-radar',
       label: 'Sectors',
       icon: Layers,
-      badge: 'Radar',
+      badge: '21 Sec',
       badgeColor: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800',
     },
     {
       id: 'stock-radar',
       label: 'Stocks Matrix',
       icon: Target,
-      badge: '14 Stks',
+      badge: `${stocksCount} Stks`,
       badgeColor: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800',
     },
     {

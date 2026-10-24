@@ -38,6 +38,21 @@ import {
   SettingsView,
 } from './components';
 import { BellRing } from 'lucide-react';
+import {
+  checkBackendHealth,
+  fetchGrowwAuthStatus,
+  fetchGrowwUserProfile,
+  fetchGrowwHoldings,
+  fetchGrowwBatchLTP,
+  fetchGrowwQuote,
+  connectGrowwMarketFeed,
+  fetchBackendStocks,
+  MarketWebSocketClient,
+  GrowwAuthStatus,
+  GrowwUserProfile,
+  GrowwHolding,
+  LiveMarketTick,
+} from './services/backendApi';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -133,6 +148,15 @@ export default function App() {
   // Positions / Watchlist & Trades Sub-tab State ('watchlist' | 'positions' | 'signals')
   const [activePositionsSubTab, setActivePositionsSubTab] = useState<'watchlist' | 'positions' | 'signals'>('watchlist');
 
+  // Backend Integration State (FastAPI + Groww Market Service)
+  const [backendConnected, setBackendConnected] = useState<boolean>(false);
+  const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const [growwAuth, setGrowwAuth] = useState<GrowwAuthStatus | null>(null);
+  const [growwProfile, setGrowwProfile] = useState<GrowwUserProfile | null>(null);
+  const [growwHoldings, setGrowwHoldings] = useState<GrowwHolding[]>([]);
+  const wsClientRef = useRef<MarketWebSocketClient | null>(null);
+  const tokenToSymbolMapRef = useRef<Map<number | string, string>>(new Map());
+
   // Price Alerts State & Persistence
   const [priceAlerts, setPriceAlerts] = useState<PriceAlert[]>(() => {
     try {
@@ -150,6 +174,143 @@ export default function App() {
       localStorage.setItem('quantradar_price_alerts', JSON.stringify(priceAlerts));
     } catch {}
   }, [priceAlerts]);
+
+  // Initial Backend Connection & Real-Time WebSocket Handshake
+  useEffect(() => {
+    let isMounted = true;
+
+    const initializeBackend = async () => {
+      try {
+        const health = await checkBackendHealth();
+        if (!isMounted) return;
+
+        if (health && health.status === 'ok') {
+          setBackendConnected(true);
+
+          // Populate token to symbol mapping
+          const backendStocks = await fetchBackendStocks();
+          if (isMounted && backendStocks.length > 0) {
+            const tokenMap = new Map<number | string, string>();
+            backendStocks.forEach((stk) => {
+              if (stk.instrument_token) tokenMap.set(stk.instrument_token, stk.symbol);
+              if (stk.groww_exchange_token) tokenMap.set(stk.groww_exchange_token, stk.symbol);
+            });
+            tokenToSymbolMapRef.current = tokenMap;
+          }
+
+          // Check Groww Auth Status
+          const auth = await fetchGrowwAuthStatus();
+          if (isMounted && auth?.authenticated) {
+            setGrowwAuth(auth);
+
+            // Fetch User Profile
+            const profile = await fetchGrowwUserProfile();
+            if (isMounted && profile) {
+              setGrowwProfile(profile);
+              setCurrentUser((prev) => {
+                if (!prev || prev.provider === 'demo') {
+                  return {
+                    email: `groww.${profile.ucc}@sevenseascapital.in`,
+                    name: `Groww User (${profile.ucc})`,
+                    provider: 'groww',
+                    role: 'Active Broker Account',
+                  };
+                }
+                return prev;
+              });
+            }
+
+            // Fetch Demat Holdings
+            const holdings = await fetchGrowwHoldings();
+            if (isMounted && holdings.length > 0) {
+              setGrowwHoldings(holdings);
+
+              // Query batch LTP for holdings
+              const holdingSymbols = holdings.map((h) => h.trading_symbol);
+              const holdingLtps = await fetchGrowwBatchLTP(holdingSymbols);
+              if (isMounted && Object.keys(holdingLtps).length > 0) {
+                setStocksRadar((prev) =>
+                  prev.map((s) => {
+                    const key = `NSE_${s.symbol}`;
+                    if (holdingLtps[key]) {
+                      const newLtp = holdingLtps[key];
+                      const newChange = +(newLtp - s.open915).toFixed(2);
+                      const newChangePct = +((newChange / s.open915) * 100).toFixed(2);
+                      return {
+                        ...s,
+                        ltp: newLtp,
+                        change: newChange,
+                        changePercent: newChangePct,
+                      };
+                    }
+                    return s;
+                  })
+                );
+              }
+            }
+
+            // Trigger backend feed connection
+            connectGrowwMarketFeed().catch(() => {});
+          }
+
+          // Initialize WebSocket
+          const ws = new MarketWebSocketClient();
+          wsClientRef.current = ws;
+
+          ws.onStatusChange((connected) => {
+            if (isMounted) setWsConnected(connected);
+          });
+
+          ws.onTick((tick: LiveMarketTick) => {
+            if (!isMounted) return;
+
+            let symbol = tick.symbol;
+            if (!symbol && tick.instrument_token !== undefined) {
+              symbol = tokenToSymbolMapRef.current.get(tick.instrument_token);
+            }
+            if (!symbol && tick.exchange_token !== undefined) {
+              symbol = tokenToSymbolMapRef.current.get(tick.exchange_token);
+            }
+
+            const tickPrice = tick.ltp ?? tick.last_price;
+            if (!tickPrice) return;
+
+            if (symbol) {
+              setStocksRadar((prev) =>
+                prev.map((stk) => {
+                  if (stk.symbol.toUpperCase() === symbol!.toUpperCase()) {
+                    const newChange = +(tickPrice - stk.open915).toFixed(2);
+                    const newChangePct = +((newChange / stk.open915) * 100).toFixed(2);
+                    return {
+                      ...stk,
+                      ltp: tickPrice,
+                      change: newChange,
+                      changePercent: newChangePct,
+                      volume: tick.volume_traded ?? tick.volume ?? stk.volume,
+                    };
+                  }
+                  return stk;
+                })
+              );
+            }
+          });
+
+          ws.connect();
+        } else {
+          setBackendConnected(false);
+        }
+      } catch {
+        if (isMounted) setBackendConnected(false);
+      }
+    };
+
+    initializeBackend();
+
+    return () => {
+      isMounted = false;
+      wsClientRef.current?.disconnect();
+    };
+  }, []);
 
   // Audio tone notification helper for triggered price alert
   const playAlertChime = useCallback(() => {
@@ -541,6 +702,46 @@ export default function App() {
     setActiveStockDetail(stock);
     setPreviousTab(activeTab);
     setActiveTab('stock-detail');
+
+    // If connected to backend, pull fresh quote directly from Groww API
+    if (backendConnected) {
+      fetchGrowwQuote(stock.symbol)
+        .then((quote) => {
+          if (quote && quote.last_price) {
+            setActiveStockDetail((prev) => {
+              if (!prev || prev.symbol !== stock.symbol) return prev;
+              return {
+                ...prev,
+                ltp: quote.last_price,
+                change: quote.day_change ?? prev.change,
+                changePercent: quote.day_change_perc ?? prev.changePercent,
+                dayHigh: quote.ohlc?.high ?? prev.dayHigh,
+                dayLow: quote.ohlc?.low ?? prev.dayLow,
+                open915: quote.ohlc?.open ?? prev.open915,
+                volume: quote.volume ?? prev.volume,
+              };
+            });
+
+            setStocksRadar((prev) =>
+              prev.map((s) => {
+                if (s.symbol === stock.symbol) {
+                  return {
+                    ...s,
+                    ltp: quote.last_price,
+                    change: quote.day_change ?? s.change,
+                    changePercent: quote.day_change_perc ?? s.changePercent,
+                    dayHigh: quote.ohlc?.high ?? s.dayHigh,
+                    dayLow: quote.ohlc?.low ?? s.dayLow,
+                    volume: quote.volume ?? s.volume,
+                  };
+                }
+                return s;
+              })
+            );
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   // Back from Stock Detail View
@@ -685,8 +886,39 @@ export default function App() {
     showToast(`All ${count} open positions squared off at market price.`);
   };
 
-  const handleRefreshData = () => {
-    showToast('Market scanner & quote cache refreshed from NSE simulated feed');
+  const handleRefreshData = async () => {
+    if (backendConnected) {
+      try {
+        const holdings = await fetchGrowwHoldings();
+        if (holdings.length > 0) {
+          setGrowwHoldings(holdings);
+          const holdingSymbols = holdings.map((h) => h.trading_symbol);
+          const holdingLtps = await fetchGrowwBatchLTP(holdingSymbols);
+          if (Object.keys(holdingLtps).length > 0) {
+            setStocksRadar((prev) =>
+              prev.map((s) => {
+                const key = `NSE_${s.symbol}`;
+                if (holdingLtps[key]) {
+                  const newLtp = holdingLtps[key];
+                  const newChange = +(newLtp - s.open915).toFixed(2);
+                  const newChangePct = +((newChange / s.open915) * 100).toFixed(2);
+                  return {
+                    ...s,
+                    ltp: newLtp,
+                    change: newChange,
+                    changePercent: newChangePct,
+                  };
+                }
+                return s;
+              })
+            );
+          }
+        }
+        showToast('Holdings & Quotes refreshed from Groww API');
+        return;
+      } catch {}
+    }
+    showToast('Market scanner & quote cache refreshed from NSE feed');
   };
 
   const handleLogout = () => {
@@ -718,6 +950,7 @@ export default function App() {
         openPositionsCount={positions.length}
         totalUnrealizedPnl={totalUnrealizedPnl}
         activeSignalsCount={signals.length}
+        stocksCount={stocksRadar.length}
         isMobileOpen={isMobileOpen}
         setIsMobileOpen={setIsMobileOpen}
         currentUser={currentUser}
@@ -742,6 +975,9 @@ export default function App() {
           onLogout={handleLogout}
           theme={theme}
           onToggleTheme={toggleTheme}
+          backendConnected={backendConnected}
+          growwAuth={growwAuth}
+          wsConnected={wsConnected}
         />
 
         {/* Page Body: Dynamic View Switching adhering to strict trader workflow */}
@@ -902,6 +1138,8 @@ export default function App() {
                   positions={positions}
                   onSquareOff={handleSquareOff}
                   onSquareOffAll={handleSquareOffAll}
+                  growwHoldings={growwHoldings}
+                  stocks={stocksRadar}
                 />
               )}
 
@@ -938,7 +1176,11 @@ export default function App() {
           {/* VIEW 6: SETTINGS */}
           {activeTab === 'settings' && (
             <div className="space-y-4 animate-in fade-in duration-150">
-              <SettingsView />
+              <SettingsView
+                backendConnected={backendConnected}
+                growwAuth={growwAuth}
+                growwProfile={growwProfile}
+              />
             </div>
           )}
 
