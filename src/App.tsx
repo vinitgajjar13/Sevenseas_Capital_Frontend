@@ -1081,10 +1081,12 @@ export default function App() {
   };
 
   const liveDataConnected = Boolean(backendConnected && growwAuth?.authenticated);
-  const dashboardStocks = liveDataConnected && marketOverview
-    ? stocksRadar.filter((stock) => marketOverview.stocks.some(
-        (item) => item.symbol.toUpperCase() === stock.symbol.toUpperCase() && item.ltp != null
-      ))
+  const dashboardStocks = liveDataConnected
+    ? (marketOverview
+        ? stocksRadar.filter((stock) => marketOverview.stocks.some(
+            (item) => item.symbol.toUpperCase() === stock.symbol.toUpperCase() && item.ltp != null
+          ))
+        : [])
     : stocksRadar;
 
   return (
