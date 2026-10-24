@@ -1,13 +1,4 @@
 import React, { useState } from 'react';
-import { Lock, Mail, ShieldCheck, ArrowRight, X } from 'lucide-react';
-
-export interface UserProfile {
-  email: string;
-  name: string;
-  provider: 'email' | 'google' | 'demo' | 'groww';
-  role: string;
-  token?: string;
-}
 import {
   Lock,
   User,
@@ -23,7 +14,15 @@ import {
 } from 'lucide-react';
 import { authenticateUser, resetUserPassword, AuthUser } from '../../services/authService';
 
-export type UserProfile = AuthUser;
+export interface UserProfile {
+  id?: number;
+  email: string;
+  name: string;
+  username?: string;
+  provider?: 'credentials' | 'demo' | 'email' | 'google' | 'groww' | string;
+  role: string;
+  token?: string;
+}
 
 interface LoginModalProps {
   isOpen: boolean;
