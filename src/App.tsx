@@ -26,6 +26,7 @@ import {
   Header,
   Disclaimer,
   LoginModal,
+  LoginPage,
   UserProfile,
   DashboardView,
   SectorRadarView,
@@ -89,12 +90,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
       const saved = localStorage.getItem('quantradar_user');
-      return saved ? JSON.parse(saved) : {
-        email: 'lead.trader@sevenseascapital.in',
-        name: 'Senior Trader',
-        provider: 'demo',
-        role: 'Pro Trader (13y Exp)',
-      };
+      return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
     }
@@ -926,6 +922,18 @@ export default function App() {
     setCurrentUser(null);
     showToast('Signed out from trading session');
   };
+
+  // Dedicated Login Page when user is unauthenticated
+  if (!currentUser) {
+    return (
+      <LoginPage
+        onLoginSuccess={(user) => {
+          setCurrentUser(user as UserProfile);
+          showToast(`Welcome, ${user.name}! Terminal active.`);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-150">
