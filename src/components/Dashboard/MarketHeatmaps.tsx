@@ -23,6 +23,14 @@ export const MarketHeatmaps: React.FC<MarketHeatmapsProps> = ({ stocks, onSelect
 
   // Map real stock radar data to Treemap HeatmapItem[]
   const heatmapItems: HeatmapItem[] = useMemo(() => {
+    if (liveDataConnected) {
+      return (stocks || []).map((s) => ({
+        name: s.symbol,
+        sector: s.sector,
+        size: Math.max(1, s.capital || Math.round(s.ltp * (s.rvol || 1))),
+        change: s.changePercent,
+      }));
+    }
     if (stocks && stocks.length > 0) {
       return stocks.map((s) => ({
         name: s.symbol,
@@ -32,7 +40,7 @@ export const MarketHeatmaps: React.FC<MarketHeatmapsProps> = ({ stocks, onSelect
       }));
     }
     return generateHeatmap();
-  }, [stocks]);
+  }, [stocks, liveDataConnected]);
 
   const sectorHeatmapData: HeatmapSectorItem[] = useMemo(() => {
     if (!liveDataConnected) return MOCK_SECTOR_HEATMAP;
