@@ -38,6 +38,7 @@ import { getFloatAndLiquidity, formatShares } from '../../utils/liquidityMetrics
 import { calculateHistoricalVolatility } from '../../utils/volatilityMetrics';
 import type { Candle } from '../Charts/types';
 import { generateOhlc } from '../Charts/mockChartData';
+import { fetchGrowwHistoricalCandles } from '../../services/backendApi';
 
 const ChartWorkspace = React.lazy(() => import('../Charts/ChartWorkspace'));
 
@@ -50,6 +51,7 @@ interface StockDetailViewProps {
   onSetAlert?: (alert: PriceAlert) => void;
   onRemoveAlert?: (alertId: string) => void;
   theme?: 'light' | 'dark';
+  marketDataConnected?: boolean;
 }
 
 interface CandlePoint {
@@ -153,9 +155,53 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
   onSetAlert,
   onRemoveAlert,
   theme = 'light',
+  marketDataConnected = false,
 }) => {
   const [chartMode, setChartMode] = useState<'CANDLE' | 'AREA'>('CANDLE');
   const [hoveredCandleIndex, setHoveredCandleIndex] = useState<number | null>(null);
+  const [growwCandles, setGrowwCandles] = useState<Candle[]>([]);
+  const [liveCandlesLoading, setLiveCandlesLoading] = useState(false);
+  const [liveCandlesError, setLiveCandlesError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!marketDataConnected) {
+      setGrowwCandles([]);
+      setLiveCandlesLoading(false);
+      setLiveCandlesError(false);
+      return;
+    }
+
+    const pad = (value: number) => String(value).padStart(2, '0');
+    const formatLocalDateTime = (date: Date) =>
+      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    const end = new Date();
+    const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    setLiveCandlesLoading(true);
+    setLiveCandlesError(false);
+    fetchGrowwHistoricalCandles(
+      stock.symbol,
+      formatLocalDateTime(start),
+      formatLocalDateTime(end),
+      '5minute',
+    ).then((candles) => {
+      if (cancelled) return;
+      setGrowwCandles(candles || []);
+      setLiveCandlesError(!candles || candles.length === 0);
+    }).catch(() => {
+      if (!cancelled) {
+        setGrowwCandles([]);
+        setLiveCandlesError(true);
+      }
+    }).finally(() => {
+      if (!cancelled) setLiveCandlesLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stock.symbol, marketDataConnected]);
 
   // Set Alert Modal States
   const [showAlertModal, setShowAlertModal] = useState<boolean>(false);
@@ -1322,12 +1368,24 @@ if (!s1 || !r1 || s1 >= r1) return;
                 </div>
               }
             >
-              <ChartWorkspace
-                symbol={stock.symbol}
-                candles={chartCandles}
-                theme={theme || 'light'}
-                height={520}
-              />
+              {marketDataConnected && liveCandlesLoading ? (
+                <div className="h-[520px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-center text-xs text-slate-500">
+                  Loading Groww historical candles…
+                </div>
+              ) : marketDataConnected && (liveCandlesError || growwCandles.length === 0) ? (
+                <div className="h-[520px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col items-center justify-center gap-2 px-6 text-center">
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Historical candles are unavailable</span>
+                  <span className="text-xs text-slate-500">Check Groww subscription, market hours, symbol mapping and backend logs. Demo candles are hidden while connected to live data.</span>
+                </div>
+              ) : (
+                <ChartWorkspace
+                  symbol={stock.symbol}
+                  candles={marketDataConnected ? growwCandles : chartCandles}
+                  dataSourceLabel={marketDataConnected ? 'Groww historical candles' : 'Simulated demo data'}
+                  theme={theme || 'light'}
+                  height={520}
+                />
+              )}
             </React.Suspense>
           </div>
 
