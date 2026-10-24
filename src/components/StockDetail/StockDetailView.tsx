@@ -38,6 +38,7 @@ import { getFloatAndLiquidity, formatShares } from '../../utils/liquidityMetrics
 import { calculateHistoricalVolatility } from '../../utils/volatilityMetrics';
 import type { Candle } from '../Charts/types';
 import { generateOhlc } from '../Charts/mockChartData';
+import { fetchGrowwHistoricalCandles } from '../../services/backendApi';
 
 const ChartWorkspace = React.lazy(() => import('../Charts/ChartWorkspace'));
 
@@ -50,6 +51,7 @@ interface StockDetailViewProps {
   onSetAlert?: (alert: PriceAlert) => void;
   onRemoveAlert?: (alertId: string) => void;
   theme?: 'light' | 'dark';
+  marketDataConnected?: boolean;
 }
 
 interface CandlePoint {
@@ -153,9 +155,53 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
   onSetAlert,
   onRemoveAlert,
   theme = 'light',
+  marketDataConnected = false,
 }) => {
   const [chartMode, setChartMode] = useState<'CANDLE' | 'AREA'>('CANDLE');
   const [hoveredCandleIndex, setHoveredCandleIndex] = useState<number | null>(null);
+  const [growwCandles, setGrowwCandles] = useState<Candle[]>([]);
+  const [liveCandlesLoading, setLiveCandlesLoading] = useState(false);
+  const [liveCandlesError, setLiveCandlesError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!marketDataConnected) {
+      setGrowwCandles([]);
+      setLiveCandlesLoading(false);
+      setLiveCandlesError(false);
+      return;
+    }
+
+    const pad = (value: number) => String(value).padStart(2, '0');
+    const formatLocalDateTime = (date: Date) =>
+      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    const end = new Date();
+    const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    setLiveCandlesLoading(true);
+    setLiveCandlesError(false);
+    fetchGrowwHistoricalCandles(
+      stock.symbol,
+      formatLocalDateTime(start),
+      formatLocalDateTime(end),
+      '5minute',
+    ).then((candles) => {
+      if (cancelled) return;
+      setGrowwCandles(candles || []);
+      setLiveCandlesError(!candles || candles.length === 0);
+    }).catch(() => {
+      if (!cancelled) {
+        setGrowwCandles([]);
+        setLiveCandlesError(true);
+      }
+    }).finally(() => {
+      if (!cancelled) setLiveCandlesLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stock.symbol, marketDataConnected]);
 
   // Set Alert Modal States
   const [showAlertModal, setShowAlertModal] = useState<boolean>(false);
@@ -712,8 +758,19 @@ if (!s1 || !r1 || s1 >= r1) return;
         {/* Live LTP & Day Change */}
         <div className="flex items-center gap-3 self-start sm:self-auto">
           <div className="text-right">
-            <div className="text-2xl font-bold font-mono text-slate-900 tabular-nums">
-              {formatINR(stock.ltp)}
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-2xl sm:text-3xl font-black font-mono text-slate-900 tabular-nums">
+                {formatINR(stock.ltp)}
+              </span>
+              <span
+                className={`px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded ${
+                  stock.priceType === 'LAST_CLOSE'
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                    : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                }`}
+              >
+                {stock.priceType === 'LAST_CLOSE' ? 'LAST CLOSE' : 'LIVE'}
+              </span>
             </div>
             <div
               className={`flex items-center justify-end gap-0.5 text-xs font-bold font-mono ${
@@ -727,6 +784,11 @@ if (!s1 || !r1 || s1 >= r1) return;
                 {stock.changePercent.toFixed(2)}%)
               </span>
             </div>
+            {stock.priceType === 'LAST_CLOSE' && stock.prevClose && (
+              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                Session Prev Close: {formatINR(stock.prevClose)}
+              </div>
+            )}
           </div>
 
           {/* Set Alert Button */}
@@ -1322,12 +1384,24 @@ if (!s1 || !r1 || s1 >= r1) return;
                 </div>
               }
             >
-              <ChartWorkspace
-                symbol={stock.symbol}
-                candles={chartCandles}
-                theme={theme || 'light'}
-                height={520}
-              />
+              {marketDataConnected && liveCandlesLoading ? (
+                <div className="h-[520px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-center text-xs text-slate-500">
+                  Loading Groww historical candles…
+                </div>
+              ) : marketDataConnected && (liveCandlesError || growwCandles.length === 0) ? (
+                <div className="h-[520px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col items-center justify-center gap-2 px-6 text-center">
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Historical candles are unavailable</span>
+                  <span className="text-xs text-slate-500">Check Groww subscription, market hours, symbol mapping and backend logs. Demo candles are hidden while connected to live data.</span>
+                </div>
+              ) : (
+                <ChartWorkspace
+                  symbol={stock.symbol}
+                  candles={marketDataConnected ? growwCandles : chartCandles}
+                  dataSourceLabel={marketDataConnected ? 'Groww historical candles' : 'Simulated demo data'}
+                  theme={theme || 'light'}
+                  height={520}
+                />
+              )}
             </React.Suspense>
           </div>
 

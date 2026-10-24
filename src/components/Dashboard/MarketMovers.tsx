@@ -10,6 +10,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { MarketMoverCategory, MarketMoverStock } from '../../types';
+import type { MarketOverview } from '../../services/backendApi';
 import { formatINR, formatNumber } from '../../data/mockData';
 import {
   MOCK_MOVERS_GAINERS,
@@ -20,12 +21,14 @@ import {
 
 interface MarketMoversProps {
   onSelectStock: (symbol: string) => void;
+  marketOverview?: MarketOverview | null;
+  liveDataConnected?: boolean;
 }
 
 type SortField = 'symbol' | 'price' | 'changePercent' | 'volume';
 type SortDirection = 'asc' | 'desc';
 
-export const MarketMovers: React.FC<MarketMoversProps> = ({ onSelectStock }) => {
+export const MarketMovers: React.FC<MarketMoversProps> = ({ onSelectStock, marketOverview, liveDataConnected = false }) => {
   const [activeTab, setActiveTab] = useState<MarketMoverCategory>('GAINERS');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedSector, setSelectedSector] = useState<string>('ALL');
@@ -41,21 +44,39 @@ export const MarketMovers: React.FC<MarketMoversProps> = ({ onSelectStock }) => 
     { id: 'VOLUME', label: 'Volume Buzzers', icon: BarChart3 },
   ];
 
-  // Base data source per tab
+  // Live mode shows only symbols for which Groww returned an actual LTP.
   const rawData: MarketMoverStock[] = useMemo(() => {
-    switch (activeTab) {
-      case 'GAINERS':
-        return MOCK_MOVERS_GAINERS;
-      case 'LOSERS':
-        return MOCK_MOVERS_LOSERS;
-      case 'MOST_ACTIVE':
-        return MOCK_MOVERS_MOST_ACTIVE;
-      case 'VOLUME':
-        return MOCK_MOVERS_VOLUME;
-      default:
-        return MOCK_MOVERS_GAINERS;
+    if (liveDataConnected) {
+      const liveRows: MarketMoverStock[] = (marketOverview?.stocks || [])
+        .filter((item) => item.ltp != null && Number.isFinite(item.ltp))
+        .map((item) => ({
+          id: String(item.id),
+          symbol: item.symbol,
+          name: item.name,
+          price: Number(item.ltp),
+          change: Number(item.change ?? 0),
+          changePercent: Number(item.change_percent ?? 0),
+          volume: Number(item.volume ?? 0),
+          sector: item.sector || 'Unclassified',
+          dayHigh: Number(item.high ?? item.ltp),
+          dayLow: Number(item.low ?? item.ltp),
+        }));
+      switch (activeTab) {
+        case 'GAINERS': return liveRows.filter((item) => item.changePercent > 0).sort((a, b) => b.changePercent - a.changePercent);
+        case 'LOSERS': return liveRows.filter((item) => item.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent);
+        case 'MOST_ACTIVE':
+        case 'VOLUME': return [...liveRows].sort((a, b) => b.volume - a.volume);
+        default: return liveRows;
+      }
     }
-  }, [activeTab]);
+    switch (activeTab) {
+      case 'GAINERS': return MOCK_MOVERS_GAINERS;
+      case 'LOSERS': return MOCK_MOVERS_LOSERS;
+      case 'MOST_ACTIVE': return MOCK_MOVERS_MOST_ACTIVE;
+      case 'VOLUME': return MOCK_MOVERS_VOLUME;
+      default: return MOCK_MOVERS_GAINERS;
+    }
+  }, [activeTab, liveDataConnected, marketOverview]);
 
   // Sector list from current dataset
   const sectors = useMemo(() => {

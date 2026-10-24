@@ -6,20 +6,31 @@ import { formatINR, formatNumber } from '../../data/mockData';
 import MarketHeatmap from '../Charts/MarketHeatmap';
 import type { HeatmapItem } from '../Charts/types';
 import { generateHeatmap } from '../Charts/mockChartData';
+import type { MarketOverview } from '../../services/backendApi';
 
 interface MarketHeatmapsProps {
   stocks?: StockRadarItem[];
   onSelectStock: (symbol: string) => void;
   theme?: 'light' | 'dark';
+  marketOverview?: MarketOverview | null;
+  liveDataConnected?: boolean;
 }
 
-export const MarketHeatmaps: React.FC<MarketHeatmapsProps> = ({ stocks, onSelectStock, theme = 'light' }) => {
+export const MarketHeatmaps: React.FC<MarketHeatmapsProps> = ({ stocks, onSelectStock, theme = 'light', marketOverview, liveDataConnected = false }) => {
   const [heatmapMode, setHeatmapMode] = useState<'STOCKS' | 'SECTORS'>('STOCKS');
   const [stockViewType, setStockViewType] = useState<'TREEMAP' | 'GRID'>('TREEMAP');
   const [hoveredStock, setHoveredStock] = useState<StockRadarItem | HeatmapStockItem | null>(null);
 
   // Map real stock radar data to Treemap HeatmapItem[]
   const heatmapItems: HeatmapItem[] = useMemo(() => {
+    if (liveDataConnected) {
+      return (stocks || []).map((s) => ({
+        name: s.symbol,
+        sector: s.sector,
+        size: Math.max(1, s.capital || Math.round(s.ltp * (s.rvol || 1))),
+        change: s.changePercent,
+      }));
+    }
     if (stocks && stocks.length > 0) {
       return stocks.map((s) => ({
         name: s.symbol,
@@ -29,7 +40,18 @@ export const MarketHeatmaps: React.FC<MarketHeatmapsProps> = ({ stocks, onSelect
       }));
     }
     return generateHeatmap();
-  }, [stocks]);
+  }, [stocks, liveDataConnected]);
+
+  const sectorHeatmapData: HeatmapSectorItem[] = useMemo(() => {
+    if (!liveDataConnected) return MOCK_SECTOR_HEATMAP;
+    return (marketOverview?.sectors || []).map((sector) => ({
+      name: sector.sector,
+      changePercent: sector.average_change_percent ?? 0,
+      stockCount: sector.total,
+      bullishCount: sector.advances,
+      bearishCount: sector.declines,
+    }));
+  }, [liveDataConnected, marketOverview]);
 
   // Helper to calculate traditional green/red intensity background class
   const getHeatmapColorClass = (changePct: number) => {
@@ -213,7 +235,7 @@ export const MarketHeatmaps: React.FC<MarketHeatmapsProps> = ({ stocks, onSelect
         {/* MODE 2: SECTOR HEATMAP */}
         {heatmapMode === 'SECTORS' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {MOCK_SECTOR_HEATMAP.map((sector) => {
+            {sectorHeatmapData.map((sector) => {
               const colorClass = getHeatmapColorClass(sector.changePercent);
               const total = sector.stockCount;
               const bullPct = Math.round((sector.bullishCount / total) * 100);

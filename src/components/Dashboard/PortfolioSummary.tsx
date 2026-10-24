@@ -13,18 +13,40 @@ import {
 import { formatINR } from '../../data/mockData';
 import { MOCK_PORTFOLIO_SUMMARY, MOCK_RECENT_TRADES } from '../../data/mock/portfolio';
 
+export interface PortfolioSummaryValues {
+  totalValue: number | null;
+  availableMargin: number | null;
+  usedMargin: number | null;
+  dayPnl: number | null;
+  dayPnlPercent: number | null;
+  overallPnl: number | null;
+  overallPnlPercent: number | null;
+  openPositionsCount: number | null;
+  winRate?: number | null;
+}
+
 interface PortfolioSummaryProps {
   onNavigateToPositions?: () => void;
   onNavigateToPaperTrading?: () => void;
+  liveDataConnected?: boolean;
+  liveSummary?: PortfolioSummaryValues | null;
 }
 
 export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
   onNavigateToPositions,
   onNavigateToPaperTrading,
+  liveDataConnected = false,
+  liveSummary = null,
 }) => {
-  const p = MOCK_PORTFOLIO_SUMMARY;
-  const isDayUp = p.dayPnl >= 0;
-  const isOverallUp = p.overallPnl >= 0;
+  const p: PortfolioSummaryValues | null = liveDataConnected
+    ? liveSummary
+    : MOCK_PORTFOLIO_SUMMARY;
+  const isDayUp = (p?.dayPnl ?? 0) >= 0;
+  const isOverallUp = (p?.overallPnl ?? 0) >= 0;
+  const money = (value: number | null | undefined) =>
+    value == null || !Number.isFinite(value) ? '—' : formatINR(value);
+  const percent = (value: number | null | undefined) =>
+    value == null || !Number.isFinite(value) ? '—' : value.toFixed(2) + '%';
 
   return (
     <section id="portfolio-summary-section" aria-label="Trader Portfolio Summary" className="w-full">
@@ -39,12 +61,16 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
               <h2 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-slate-50 font-mono">
                 Trading Portfolio & Execution
               </h2>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                Live Margin
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${liveDataConnected
+                ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                : 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'}`}>
+                {liveDataConnected ? 'Groww Account' : 'Demo Data'}
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Account balance, day P&L, available margin, and recent paper trades
+              {liveDataConnected
+                ? 'Groww equity holdings, account funds, and holdings mark-to-market P&L'
+                : 'Sample portfolio metrics and paper-trade examples; connect Groww for account data'}
             </p>
           </div>
 
@@ -56,7 +82,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
               >
                 <Briefcase className="w-3.5 h-3.5 text-slate-500" />
-                <span>Open Trades ({p.openPositionsCount})</span>
+                <span>{liveDataConnected ? 'Groww Holdings' : 'Open Trades'} ({p?.openPositionsCount ?? '—'})</span>
               </button>
             )}
 
@@ -78,14 +104,14 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
           {/* Card 1: Total Portfolio Value */}
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex flex-col justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 font-mono">
-              Portfolio Value
+              {liveDataConnected ? 'Equity + Cash Value' : 'Portfolio Value'}
             </span>
             <div className="mt-2">
               <div className="text-xl sm:text-2xl font-black font-mono text-slate-900 dark:text-slate-50 tabular-nums">
-                {formatINR(p.totalValue)}
+                {money(p?.totalValue)}
               </div>
               <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                Equity & Derivatives Book
+                {liveDataConnected ? 'Current holdings value + clear cash' : 'Equity & Derivatives Book'}
               </div>
             </div>
           </div>
@@ -101,7 +127,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
                   isDayUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
                 }`}
               >
-                <span>{isDayUp ? '+' : ''}{formatINR(p.dayPnl)}</span>
+                <span>{p?.dayPnl == null ? '—' : `${isDayUp ? '+' : ''}${money(p.dayPnl)}`}</span>
               </div>
               <div
                 className={`text-[11px] font-bold font-mono mt-0.5 flex items-center gap-0.5 ${
@@ -110,7 +136,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
               >
                 {isDayUp ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
                 <span>
-                  {isDayUp ? '+' : ''}{p.dayPnlPercent.toFixed(2)}% Today
+                  {p?.dayPnlPercent == null ? '—' : `${isDayUp ? '+' : ''}${p.dayPnlPercent.toFixed(2)}% Today`}
                 </span>
               </div>
             </div>
@@ -119,15 +145,15 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
           {/* Card 3: Available Margin */}
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex flex-col justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 font-mono">
-              Available Margin
+              {liveDataConnected ? 'Available Funds' : 'Available Margin'}
             </span>
             <div className="mt-2">
               <div className="text-xl sm:text-2xl font-black font-mono text-slate-900 dark:text-slate-50 tabular-nums">
-                {formatINR(p.availableMargin)}
+                {money(p?.availableMargin)}
               </div>
               <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5 flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3 text-emerald-500" />
-                <span>Used: {formatINR(p.usedMargin)}</span>
+                <span>Used: {money(p?.usedMargin)}</span>
               </div>
             </div>
           </div>
@@ -135,7 +161,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
           {/* Card 4: Overall Unrealized P&L */}
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex flex-col justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 font-mono">
-              Overall Realized P&L
+              {liveDataConnected ? 'Unrealized Holdings P&L' : 'Overall Realized P&L'}
             </span>
             <div className="mt-2">
               <div
@@ -143,10 +169,12 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
                   isOverallUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
                 }`}
               >
-                {isOverallUp ? '+' : ''}{formatINR(p.overallPnl)}
+                {p?.overallPnl == null ? '—' : `${isOverallUp ? '+' : ''}${formatINR(p.overallPnl)}`}
               </div>
               <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                Win Rate: <strong className="text-slate-700 dark:text-slate-300">{p.winRate}%</strong> (Past 30 Sessions)
+                {liveDataConnected
+                  ? <>ROI: <strong className="text-slate-700 dark:text-slate-300">{percent(p?.overallPnlPercent)}</strong> on cost basis</>
+                  : <>Win Rate: <strong className="text-slate-700 dark:text-slate-300">{p?.winRate}%</strong> (Past 30 Sessions)</>}
               </div>
             </div>
           </div>
@@ -159,11 +187,11 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
               <History className="w-3.5 h-3.5" />
               Recent Trade Executions
             </span>
-            <span className="text-[10px] lowercase font-normal">FIFO book matching</span>
+            <span className="text-[10px] lowercase font-normal">{liveDataConnected ? 'Groww trade history not loaded' : 'FIFO book matching · demo'}</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {MOCK_RECENT_TRADES.map((trade) => {
+            {!liveDataConnected && MOCK_RECENT_TRADES.map((trade) => {
               const isProfit = trade.netPnl >= 0;
               return (
                 <div
@@ -194,6 +222,11 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
                 </div>
               );
             })}
+            {liveDataConnected && (
+              <div className="sm:col-span-2 lg:col-span-4 p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 text-xs text-slate-500">
+                Groww account figures above are live. Recent closed-trade P&amp;L and win rate need order/trade-history reconciliation and are not inferred from holdings.
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -13,41 +13,55 @@ import { SectorParticipationItem, StockRadarItem } from '../../types';
 import { MOCK_SECTOR_PARTICIPATION } from '../../data/mock/sectors';
 import { MOCK_STOCK_UNIVERSE } from '../../data/mock/stocks';
 import { formatINR } from '../../data/mockData';
+import type { MarketOverview } from '../../services/backendApi';
 
 interface TopSectorsProps {
   onSelectStock: (symbol: string) => void;
   onNavigateToSectorsView?: () => void;
+  marketOverview?: MarketOverview | null;
+  liveDataConnected?: boolean;
+  stocks?: StockRadarItem[];
 }
 
 export const TopSectors: React.FC<TopSectorsProps> = ({
   onSelectStock,
   onNavigateToSectorsView,
+  marketOverview,
+  liveDataConnected = false,
+  stocks = [],
 }) => {
   const [showAll, setShowAll] = useState<boolean>(false);
   const [activeDrilldownSector, setActiveDrilldownSector] = useState<SectorParticipationItem | null>(null);
 
-  // Split into Bullish vs Bearish sectors
-  const bullishSectors = useMemo(() => {
-    return MOCK_SECTOR_PARTICIPATION.filter((s) => s.changePercent >= 0).sort(
-      (a, b) => b.changePercent - a.changePercent
-    );
-  }, []);
+  // Live sector participation is aggregated from Groww-backed stock quotes.
+  const sectorSource: SectorParticipationItem[] = useMemo(() => {
+    if (!liveDataConnected) return MOCK_SECTOR_PARTICIPATION;
+    return (marketOverview?.sectors || []).map((item, index) => ({
+      id: `live-sector-${index}-${item.sector}` ,
+      name: item.sector,
+      indexSymbol: item.sector,
+      changePercent: item.average_change_percent ?? 0,
+      bullishPercent: item.total ? (item.advances / item.total) * 100 : 0,
+      bearishPercent: item.total ? (item.declines / item.total) * 100 : 0,
+      advanceCount: item.advances,
+      declineCount: item.declines,
+      totalStocks: item.total,
+      commentary: 'Aggregated from Groww live stock quotes',
+    }));
+  }, [liveDataConnected, marketOverview]);
 
-  const bearishSectors = useMemo(() => {
-    return MOCK_SECTOR_PARTICIPATION.filter((s) => s.changePercent < 0).sort(
-      (a, b) => a.changePercent - b.changePercent
-    );
-  }, []);
+  const bullishSectors = useMemo(() => sectorSource.filter((s) => s.changePercent >= 0).sort((a, b) => b.changePercent - a.changePercent), [sectorSource]);
+  const bearishSectors = useMemo(() => sectorSource.filter((s) => s.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent), [sectorSource]);
 
-  // Stocks belonging to selected drilldown sector
+  // Stocks belonging to the selected sector drilldown.
   const drilldownStocks: StockRadarItem[] = useMemo(() => {
     if (!activeDrilldownSector) return [];
-    return MOCK_STOCK_UNIVERSE.filter(
-      (s) =>
-        s.sector.toLowerCase().includes(activeDrilldownSector.name.toLowerCase().replace('nifty', '').trim()) ||
-        activeDrilldownSector.name.toLowerCase().includes(s.sector.toLowerCase())
+    const sourceStocks = liveDataConnected ? stocks : MOCK_STOCK_UNIVERSE;
+    return sourceStocks.filter((s) =>
+      s.sector.toLowerCase().includes(activeDrilldownSector.name.toLowerCase().replace('nifty', '').trim()) ||
+      activeDrilldownSector.name.toLowerCase().includes(s.sector.toLowerCase())
     );
-  }, [activeDrilldownSector]);
+  }, [activeDrilldownSector, liveDataConnected, stocks]);
 
   const displayedBullish = showAll ? bullishSectors : bullishSectors.slice(0, 3);
   const displayedBearish = showAll ? bearishSectors : bearishSectors.slice(0, 3);

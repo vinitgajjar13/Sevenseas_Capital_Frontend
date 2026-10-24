@@ -6,6 +6,8 @@ import { MarketMovers } from './MarketMovers';
 import { TopSectors } from './TopSectors';
 import { MarketHeatmaps } from './MarketHeatmaps';
 import { PortfolioSummary } from './PortfolioSummary';
+import type { MarketOverview } from '../../services/backendApi';
+import type { PortfolioSummaryValues } from './PortfolioSummary';
 
 interface DashboardViewProps {
   indices: {
@@ -14,6 +16,9 @@ interface DashboardViewProps {
     sensex: MarketIndex;
   };
   stocks: StockRadarItem[];
+  marketOverview?: MarketOverview | null;
+  liveDataConnected?: boolean;
+  liveSummary?: PortfolioSummaryValues | null;
   onSelectStock: (stock: StockRadarItem) => void;
   onSelectStockBySymbol: (symbol: string) => void;
   onNavigateToPositions?: () => void;
@@ -25,6 +30,9 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   indices,
   stocks,
+  marketOverview,
+  liveDataConnected = false,
+  liveSummary = null,
   onSelectStock,
   onSelectStockBySymbol,
   onNavigateToPositions,
@@ -43,6 +51,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <PortfolioSummary
         onNavigateToPositions={onNavigateToPositions}
         onNavigateToPaperTrading={onNavigateToPaperTrading}
+        liveDataConnected={liveDataConnected}
+        liveSummary={liveSummary}
       />
 
       {/* SECTION 2: Market Index Cards (NIFTY 50, BANK NIFTY, SENSEX) */}
@@ -52,16 +62,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       />
 
       {/* SECTION 3: Market Movers (Gainers, Losers, Most Active, Volume Buzzers) */}
-      <MarketMovers onSelectStock={onSelectStockBySymbol} />
+      <MarketMovers
+        onSelectStock={onSelectStockBySymbol}
+        marketOverview={marketOverview}
+        liveDataConnected={liveDataConnected}
+      />
 
       {/* SECTION 4: Top Sectors (Bullish & Bearish Participation Matrix) */}
       <TopSectors
         onSelectStock={onSelectStockBySymbol}
         onNavigateToSectorsView={onNavigateToSectorsView}
+        marketOverview={marketOverview}
+        liveDataConnected={liveDataConnected}
+        stocks={stocks}
       />
 
       {/* SECTION 5: Market Heatmaps (Overall Market + Sector Heatmaps) */}
-      <MarketHeatmaps stocks={stocks} onSelectStock={onSelectStockBySymbol} theme={theme} />
+      <MarketHeatmaps
+        stocks={stocks}
+        onSelectStock={onSelectStockBySymbol}
+        theme={theme}
+        marketOverview={marketOverview}
+        liveDataConnected={liveDataConnected}
+      />
     </div>
   );
 };

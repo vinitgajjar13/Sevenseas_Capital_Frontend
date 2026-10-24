@@ -15,6 +15,7 @@ interface Props {
   theme: 'light' | 'dark';
   onSelectSymbol?: (symbol: string) => void;
   height?: number;
+  dataSourceLabel?: string;
 }
 
 const TABS: { id: ChartTab; label: string }[] = [
@@ -54,7 +55,7 @@ const chip = (on: boolean) =>
       : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
   }`;
 
-export default function ChartWorkspace({ symbol = 'RELIANCE', candles, heatmap, orderBook, theme, onSelectSymbol, height = 560 }: Props) {
+export default function ChartWorkspace({ symbol = 'RELIANCE', candles, heatmap, orderBook, theme, onSelectSymbol, height = 560, dataSourceLabel }: Props) {
   const [tab, setTab] = useState<ChartTab>('candles');
   const [tf, setTf] = useState(1);
   const [ind, setInd] = useState<IndicatorToggles>({ volume: true, vwap: true, bollinger: false, sma20: false, ema50: false, rsi: false, macd: false });
@@ -91,7 +92,7 @@ export default function ChartWorkspace({ symbol = 'RELIANCE', candles, heatmap, 
             <span className={chg >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
           </p>
         )}
-        <p className="ml-auto text-xs text-slate-400">Simulated data</p>
+        <p className="ml-auto text-xs text-slate-400">{dataSourceLabel || 'Simulated data'}</p>
       </header>
 
       <div role="tablist" aria-label="Chart type" className="mb-2 flex flex-wrap gap-1.5">

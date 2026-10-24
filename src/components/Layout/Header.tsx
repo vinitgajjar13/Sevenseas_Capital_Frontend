@@ -15,6 +15,7 @@ import { TimePeriod, StockRadarItem } from '../../types';
 import { exportRadarToCSV } from '../../utils/formatters';
 import { UserProfile } from './LoginModal';
 import { GrowwAuthStatus } from '../../services/backendApi';
+import { MarketStatusDetail, getIndianMarketStatus } from '../../utils/marketHours';
 
 interface HeaderProps {
   timePeriod: TimePeriod;
@@ -33,6 +34,7 @@ interface HeaderProps {
   backendConnected?: boolean;
   growwAuth?: GrowwAuthStatus | null;
   wsConnected?: boolean;
+  marketStatusDetail?: MarketStatusDetail;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -52,9 +54,11 @@ export const Header: React.FC<HeaderProps> = ({
   backendConnected = false,
   growwAuth = null,
   wsConnected = false,
+  marketStatusDetail,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [countdown, setCountdown] = useState<string>('');
+  const activeMarketStatus = marketStatusDetail || getIndianMarketStatus();
 
   useEffect(() => {
     const updateTime = () => {
@@ -108,17 +112,39 @@ export const Header: React.FC<HeaderProps> = ({
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Market Status Badge */}
-        <div
-          id="badge-market-status"
-          className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs"
-        >
-          <span className="relative flex w-2 h-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full w-2 h-2 bg-emerald-500"></span>
-          </span>
-          <span className="tracking-tight font-mono">NSE Live Market</span>
-        </div>
+        {/* Market Status Badge (Live vs Last Close) */}
+        {activeMarketStatus.marketStatus === 'OPEN' ? (
+          <div
+            id="badge-market-status"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs"
+            title="NSE / BSE Normal Trading Session: 09:15 to 15:30 IST"
+          >
+            <span className="relative flex w-2 h-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full w-2 h-2 bg-emerald-500"></span>
+            </span>
+            <span className="tracking-tight font-mono">NSE Live</span>
+            <span className="px-1 py-0.2 rounded text-[9px] font-extrabold uppercase bg-emerald-200/70 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200">
+              LIVE
+            </span>
+          </div>
+        ) : (
+          <div
+            id="badge-market-status"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-800 shadow-2xs"
+            title={`Market is Closed (${activeMarketStatus.reason}). Official closing prices shown from completed trading session (${activeMarketStatus.lastTradingSessionDate}).`}
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span className="tracking-tight font-mono">
+              {activeMarketStatus.holidayName ? `Holiday: ${activeMarketStatus.holidayName}` : 'Market Closed'}
+            </span>
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-amber-200/90 dark:bg-amber-900 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+              {activeMarketStatus.lastTradingSessionDate
+                ? `LAST CLOSE (${activeMarketStatus.lastTradingSessionDate})`
+                : 'LAST CLOSE'}
+            </span>
+          </div>
+        )}
 
         {/* Backend / Broker Status Badge */}
         <div

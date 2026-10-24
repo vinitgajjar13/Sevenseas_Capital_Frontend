@@ -21,6 +21,7 @@ import {
 } from './types';
 import { getInitialWatchlist, MasterStockEntry } from './data/mock/watchlistData';
 import { getStockClassification } from './utils/stockRanking';
+import type { PortfolioSummaryValues } from './components/Dashboard/PortfolioSummary';
 import {
   Sidebar,
   Header,
@@ -41,9 +42,15 @@ import {
 import { BellRing } from 'lucide-react';
 import {
   checkBackendHealth,
+  connectGroww,
+  fetchMarketOverview,
+  fetchGrowwMarketIndices,
+  fetchMarketStatus,
+  fetchMarketPrices,
   fetchGrowwAuthStatus,
   fetchGrowwUserProfile,
   fetchGrowwHoldings,
+  fetchGrowwMargins,
   fetchGrowwBatchLTP,
   fetchGrowwQuote,
   connectGrowwMarketFeed,
@@ -52,15 +59,20 @@ import {
   GrowwAuthStatus,
   GrowwUserProfile,
   GrowwHolding,
+  GrowwMargins,
   LiveMarketTick,
+  MarketOverview,
+  GrowwMarketIndicesResponse,
 } from './services/backendApi';
+import { MarketStatusDetail, getIndianMarketStatus } from './utils/marketHours';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [previousTab, setPreviousTab] = useState<NavTab>('dashboard');
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('1D');
   const [isMobileOpen, setIsMobileOpen] = useState<boolean>(false);
-  const [isSimulating, setIsSimulating] = useState<boolean>(true);
+  const [marketStatusDetail, setMarketStatusDetail] = useState<MarketStatusDetail>(() => getIndianMarketStatus());
+  const [isSimulating, setIsSimulating] = useState<boolean>(() => getIndianMarketStatus().marketStatus === 'OPEN');
 
   // Theme State (Light / Dark)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -104,14 +116,27 @@ export default function App() {
   const [activeStockDetail, setActiveStockDetail] = useState<StockRadarItem | null>(null);
 
   // State collections
-  const [indices, setIndices] = useState(MOCK_MARKET_INDEXES);
+  const [indices, setIndices] = useState(() => {
+    const initStatus = getIndianMarketStatus();
+    const next = { ...MOCK_MARKET_INDEXES };
+    (['nifty50', 'bankNifty', 'sensex'] as const).forEach((key) => {
+      next[key] = {
+        ...next[key],
+        marketStatus: initStatus.marketStatus === 'OPEN' ? 'Market Open' : 'Market Closed',
+        priceType: initStatus.priceType,
+      };
+    });
+    return next;
+  });
   const [breadth, setBreadth] = useState(INITIAL_BREADTH);
-  const [stocksRadar, setStocksRadar] = useState<StockRadarItem[]>(() =>
-    INITIAL_STOCKS_RADAR.map((stk) => ({
+  const [stocksRadar, setStocksRadar] = useState<StockRadarItem[]>(() => {
+    const initStatus = getIndianMarketStatus();
+    return INITIAL_STOCKS_RADAR.map((stk) => ({
       ...stk,
+      priceType: initStatus.priceType,
       marketClassification: getStockClassification(stk),
-    }))
-  );
+    }));
+  });
   const [signals, setSignals] = useState<ActiveSignal[]>(INITIAL_ACTIVE_SIGNALS);
   const [positions, setPositions] = useState<PositionItem[]>(INITIAL_POSITIONS);
   const [tradeHistory, setTradeHistory] = useState<TradeHistoryItem[]>(INITIAL_TRADE_HISTORY);
@@ -150,8 +175,13 @@ export default function App() {
   const [growwAuth, setGrowwAuth] = useState<GrowwAuthStatus | null>(null);
   const [growwProfile, setGrowwProfile] = useState<GrowwUserProfile | null>(null);
   const [growwHoldings, setGrowwHoldings] = useState<GrowwHolding[]>([]);
+  const [growwMargins, setGrowwMargins] = useState<GrowwMargins | null>(null);
+  const [growwHoldingLtps, setGrowwHoldingLtps] = useState<Record<string, number>>({});
+  const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null);
+  const [connectPending, setConnectPending] = useState<boolean>(false);
   const wsClientRef = useRef<MarketWebSocketClient | null>(null);
   const tokenToSymbolMapRef = useRef<Map<number | string, string>>(new Map());
+  const previousCloseRef = useRef<Map<string, number>>(new Map());
 
   // Price Alerts State & Persistence
   const [priceAlerts, setPriceAlerts] = useState<PriceAlert[]>(() => {
@@ -170,6 +200,106 @@ export default function App() {
       localStorage.setItem('quantradar_price_alerts', JSON.stringify(priceAlerts));
     } catch {}
   }, [priceAlerts]);
+
+  // Apply only market facts supplied by Groww. Strategy scores/signals remain separate
+  // and must not be presented as broker-provided data.
+  const applyLiveOverview = useCallback((overview: MarketOverview | null) => {
+    if (!overview) return;
+    setMarketOverview(overview);
+    setBreadth({
+      advances: overview.advances,
+      declines: overview.declines,
+      unchanged: overview.unchanged,
+      total: overview.advances + overview.declines + overview.unchanged,
+    });
+
+    const currentPriceType = marketStatusDetail.priceType;
+    const liveBySymbol = new Map(
+      overview.stocks.map((item) => [item.symbol.toUpperCase(), item])
+    );
+    previousCloseRef.current = new Map(
+      overview.stocks
+        .filter((item) => item.previous_close != null && Number.isFinite(item.previous_close))
+        .map((item) => [item.symbol.toUpperCase(), Number(item.previous_close)])
+    );
+    setStocksRadar((previous) => previous.map((stock) => {
+      const item = liveBySymbol.get(stock.symbol.toUpperCase());
+      if (!item || item.ltp == null) return stock;
+      const base = item.previous_close ?? item.open ?? stock.open915;
+      const change = item.change ?? (item.ltp - base);
+      const changePercent = item.change_percent ?? (base ? (change / base) * 100 : stock.changePercent);
+      return {
+        ...stock,
+        ltp: item.ltp,
+        change,
+        changePercent,
+        prevClose: item.previous_close ?? stock.prevClose,
+        priceType: currentPriceType,
+        lastUpdated: overview.updated_at,
+        open915: item.open ?? stock.open915,
+        high: item.high ?? stock.high,
+        low: item.low ?? stock.low,
+        dayHigh: item.high ?? stock.dayHigh,
+        dayLow: item.low ?? stock.dayLow,
+        volume: item.volume ?? stock.volume,
+      };
+    }));
+
+    setWatchlistStocks((previous) => previous.map((watch) => {
+      const item = liveBySymbol.get(watch.symbol.toUpperCase());
+      if (!item || item.ltp == null) return watch;
+      const base = item.previous_close ?? item.open ?? watch.open915 ?? item.ltp;
+      const change = item.change ?? item.ltp - base;
+      return {
+        ...watch,
+        ltp: item.ltp,
+        change,
+        changePercent: item.change_percent ?? (base ? (change / base) * 100 : watch.changePercent),
+        prevClose: item.previous_close ?? watch.prevClose,
+        priceType: currentPriceType,
+        lastUpdated: overview.updated_at,
+        open915: item.open ?? watch.open915,
+        high: item.high ?? watch.high,
+        low: item.low ?? watch.low,
+        volume: item.volume ?? watch.volume,
+        sparkline: [...(watch.sparkline || []).slice(-5), item.ltp],
+      };
+    }));
+  }, [marketStatusDetail.priceType]);
+
+  const applyLiveIndices = useCallback((response: GrowwMarketIndicesResponse | null) => {
+    if (!response) return;
+    setIndices((previous) => {
+      const next = { ...previous };
+      (['nifty50', 'bankNifty', 'sensex'] as const).forEach((key) => {
+        const quote = response.indices[key];
+        if (!quote) return;
+        const priceVal = quote.price ?? quote.last_price;
+        if (!priceVal || !Number.isFinite(priceVal)) return;
+        const oldIndex = next[key];
+        const ohlc = quote.ohlc || {};
+        const prevClose = quote.previousClose ?? ohlc.close ?? oldIndex.prevClose;
+        const chg = quote.change ?? quote.day_change ?? (prevClose ? priceVal - prevClose : oldIndex.change);
+        const chgPct = quote.changePercent ?? quote.day_change_perc ?? (prevClose ? (chg / prevClose) * 100 : oldIndex.changePercent);
+        next[key] = {
+          ...oldIndex,
+          value: priceVal,
+          change: chg,
+          changePercent: chgPct,
+          open: quote.open ?? ohlc.open ?? oldIndex.open,
+          high: quote.high ?? ohlc.high ?? oldIndex.high,
+          low: quote.low ?? ohlc.low ?? oldIndex.low,
+          prevClose: prevClose,
+          week52High: quote.week52High ?? oldIndex.week52High,
+          week52Low: quote.week52Low ?? oldIndex.week52Low,
+          marketStatus: (quote.marketStatus === 'OPEN' || response.marketStatus === 'OPEN') ? 'Market Open' : 'Market Closed',
+          priceType: quote.priceType ?? response.priceType ?? marketStatusDetail.priceType,
+          lastUpdated: quote.lastUpdated ?? response.lastUpdated,
+        };
+      });
+      return next;
+    });
+  }, [marketStatusDetail.priceType]);
 
   // Initial Backend Connection & Real-Time WebSocket Handshake
   useEffect(() => {
@@ -196,8 +326,8 @@ export default function App() {
 
           // Check Groww Auth Status
           const auth = await fetchGrowwAuthStatus();
+          if (isMounted) setGrowwAuth(auth);
           if (isMounted && auth?.authenticated) {
-            setGrowwAuth(auth);
 
             // Fetch User Profile
             const profile = await fetchGrowwUserProfile();
@@ -216,14 +346,19 @@ export default function App() {
               });
             }
 
-            // Fetch Demat Holdings
-            const holdings = await fetchGrowwHoldings();
-            if (isMounted && holdings.length > 0) {
+            // Fetch actual holdings and account funds through the existing backend APIs.
+            const [holdings, margins] = await Promise.all([
+              fetchGrowwHoldings(),
+              fetchGrowwMargins(),
+            ]);
+            if (isMounted) {
               setGrowwHoldings(holdings);
-
-              // Query batch LTP for holdings
+              setGrowwMargins(margins);
+            }
+            if (holdings.length > 0) {
               const holdingSymbols = holdings.map((h) => h.trading_symbol);
               const holdingLtps = await fetchGrowwBatchLTP(holdingSymbols);
+              if (isMounted) setGrowwHoldingLtps(holdingLtps);
               if (isMounted && Object.keys(holdingLtps).length > 0) {
                 setStocksRadar((prev) =>
                   prev.map((s) => {
@@ -245,7 +380,32 @@ export default function App() {
               }
             }
 
-            // Trigger backend feed connection
+            // Load real quotes/OHLC and verified market calendar status.
+            const [statusRes, overview, liveIndices] = await Promise.all([
+              fetchMarketStatus(),
+              fetchMarketOverview(),
+              fetchGrowwMarketIndices(),
+            ]);
+            if (isMounted && statusRes) {
+              setMarketStatusDetail((prev) => ({
+                ...prev,
+                marketStatus: statusRes.marketStatus,
+                priceType: statusRes.priceType,
+                reason: statusRes.reason,
+                isTradingDay: statusRes.isTradingDay,
+                holidayName: statusRes.holidayName ?? undefined,
+                lastTradingSessionDate: statusRes.lastTradingSessionDate,
+                previousTradingSessionDate: statusRes.previousTradingSessionDate,
+                formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
+              }));
+            }
+            if (isMounted) {
+              applyLiveOverview(overview);
+              applyLiveIndices(liveIndices);
+              if (overview || liveIndices) setIsSimulating(false);
+            }
+
+            // Trigger backend feed connection.
             connectGrowwMarketFeed().catch(() => {});
           }
 
@@ -272,22 +432,97 @@ export default function App() {
             if (!tickPrice) return;
 
             if (symbol) {
+              const symbolKey = symbol.toUpperCase();
               setStocksRadar((prev) =>
                 prev.map((stk) => {
-                  if (stk.symbol.toUpperCase() === symbol!.toUpperCase()) {
-                    const newChange = +(tickPrice - stk.open915).toFixed(2);
-                    const newChangePct = +((newChange / stk.open915) * 100).toFixed(2);
-                    return {
-                      ...stk,
-                      ltp: tickPrice,
-                      change: newChange,
-                      changePercent: newChangePct,
-                      volume: tick.volume_traded ?? tick.volume ?? stk.volume,
-                    };
-                  }
-                  return stk;
+                  if (stk.symbol.toUpperCase() !== symbolKey) return stk;
+                  const base = previousCloseRef.current.get(symbolKey) ?? stk.open915;
+                  const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
+                  const dayChangePct = tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : stk.changePercent);
+                  return {
+                    ...stk,
+                    ltp: tickPrice,
+                    change: dayChange,
+                    changePercent: dayChangePct,
+                    volume: tick.volume_traded ?? tick.volume ?? stk.volume,
+                  };
                 })
               );
+              setActiveStockDetail((prev) => {
+                if (!prev || prev.symbol.toUpperCase() !== symbolKey) return prev;
+                const base = previousCloseRef.current.get(symbolKey) ?? prev.open915;
+                const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
+                const dayChangePct = tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : prev.changePercent);
+                return {
+                  ...prev,
+                  ltp: tickPrice,
+                  change: dayChange,
+                  changePercent: dayChangePct,
+                  volume: tick.volume_traded ?? tick.volume ?? prev.volume,
+                };
+              });
+              setMarketOverview((previous) => {
+                if (!previous) return previous;
+                const stocks = previous.stocks.map((row) => {
+                  if (row.symbol.toUpperCase() !== symbolKey) return row;
+                  const base = row.previous_close ?? previousCloseRef.current.get(symbolKey) ?? row.open ?? tickPrice;
+                  const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
+                  return {
+                    ...row,
+                    ltp: tickPrice,
+                    change: dayChange,
+                    change_percent: tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : row.change_percent),
+                    open: tick.open ?? row.open,
+                    high: tick.high ?? row.high,
+                    low: tick.low ?? row.low,
+                    volume: tick.volume_traded ?? tick.volume ?? row.volume,
+                    data_source: 'groww',
+                  };
+                });
+                const known = stocks.filter((row) => row.ltp != null && row.change_percent != null);
+                const advances = known.filter((row) => (row.change_percent ?? 0) > 0).length;
+                const declines = known.filter((row) => (row.change_percent ?? 0) < 0).length;
+                const unchanged = known.filter((row) => row.change_percent === 0).length;
+                const sectors = previous.sectors.map((sector) => {
+                  const members = stocks.filter((row) => row.sector === sector.sector);
+                  const evaluated = members.filter((row) => row.ltp != null && row.change_percent != null);
+                  const positives = evaluated.filter((row) => (row.change_percent ?? 0) > 0).length;
+                  const negatives = evaluated.filter((row) => (row.change_percent ?? 0) < 0).length;
+                  return {
+                    ...sector,
+                    total: members.length,
+                    advances: positives,
+                    declines: negatives,
+                    unchanged: evaluated.length - positives - negatives,
+                    average_change_percent: evaluated.length
+                      ? evaluated.reduce((sum, row) => sum + (row.change_percent ?? 0), 0) / evaluated.length
+                      : null,
+                  };
+                });
+                setBreadth({ advances, declines, unchanged, total: known.length });
+                return {
+                  ...previous,
+                  updated_at: new Date().toISOString(),
+                  stocks,
+                  sectors,
+                  advances,
+                  declines,
+                  unchanged,
+                };
+              });
+              setWatchlistStocks((prev) => prev.map((stock) => {
+                if (stock.symbol.toUpperCase() !== symbolKey) return stock;
+                const base = previousCloseRef.current.get(symbolKey) ?? stock.open915 ?? tickPrice;
+                const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
+                return {
+                  ...stock,
+                  ltp: tickPrice,
+                  change: dayChange,
+                  changePercent: tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : stock.changePercent),
+                  volume: tick.volume_traded ?? tick.volume ?? stock.volume,
+                  sparkline: [...(stock.sparkline || []).slice(-5), tickPrice],
+                };
+              }));
             }
           });
 
@@ -306,7 +541,7 @@ export default function App() {
       isMounted = false;
       wsClientRef.current?.disconnect();
     };
-  }, []);
+  }, [applyLiveOverview, applyLiveIndices]);
 
   // Audio tone notification helper for triggered price alert
   const playAlertChime = useCallback(() => {
@@ -467,7 +702,9 @@ export default function App() {
 
   // Tick simulation effect for realistic market heartbeat
   useEffect(() => {
-    if (!isSimulating) return;
+    // Never mutate quotes with synthetic ticks while real Groww data is active,
+    // or when Indian markets are closed (preserves true official closing prices).
+    if (!isSimulating || (backendConnected && growwAuth?.authenticated) || marketStatusDetail.marketStatus === 'CLOSED') return;
 
     const interval = setInterval(() => {
       // 1. Slightly fluctuate indices
@@ -685,7 +922,7 @@ export default function App() {
     }, 1200);
 
     return () => clearInterval(interval);
-  }, [isSimulating]);
+  }, [isSimulating, backendConnected, growwAuth?.authenticated, marketStatusDetail.marketStatus]);
 
   // Click Sector Handler: Opens Sector Detail View
   const handleSelectSector = (sectorName: string | null) => {
@@ -703,14 +940,19 @@ export default function App() {
     if (backendConnected) {
       fetchGrowwQuote(stock.symbol)
         .then((quote) => {
-          if (quote && quote.last_price) {
+          if (quote && (quote.last_price || quote.price)) {
+            const rawPrice = quote.price ?? quote.last_price;
+            const prevCls = quote.previousClose ?? quote.ohlc?.close ?? stock.prevClose;
+            const pType = quote.priceType ?? marketStatusDetail.priceType;
             setActiveStockDetail((prev) => {
               if (!prev || prev.symbol !== stock.symbol) return prev;
               return {
                 ...prev,
-                ltp: quote.last_price,
-                change: quote.day_change ?? prev.change,
-                changePercent: quote.day_change_perc ?? prev.changePercent,
+                ltp: rawPrice,
+                priceType: pType,
+                prevClose: prevCls,
+                change: quote.day_change ?? (prevCls ? +(rawPrice - prevCls).toFixed(2) : prev.change),
+                changePercent: quote.day_change_perc ?? (prevCls ? +(((rawPrice - prevCls) / prevCls) * 100).toFixed(2) : prev.changePercent),
                 dayHigh: quote.ohlc?.high ?? prev.dayHigh,
                 dayLow: quote.ohlc?.low ?? prev.dayLow,
                 open915: quote.ohlc?.open ?? prev.open915,
@@ -723,9 +965,11 @@ export default function App() {
                 if (s.symbol === stock.symbol) {
                   return {
                     ...s,
-                    ltp: quote.last_price,
-                    change: quote.day_change ?? s.change,
-                    changePercent: quote.day_change_perc ?? s.changePercent,
+                    ltp: rawPrice,
+                    priceType: pType,
+                    prevClose: prevCls,
+                    change: quote.day_change ?? (prevCls ? +(rawPrice - prevCls).toFixed(2) : s.change),
+                    changePercent: quote.day_change_perc ?? (prevCls ? +(((rawPrice - prevCls) / prevCls) * 100).toFixed(2) : s.changePercent),
                     dayHigh: quote.ohlc?.high ?? s.dayHigh,
                     dayLow: quote.ohlc?.low ?? s.dayLow,
                     volume: quote.volume ?? s.volume,
@@ -882,14 +1126,108 @@ export default function App() {
     showToast(`All ${count} open positions squared off at market price.`);
   };
 
+  const handleConnectGroww = async () => {
+    if (!backendConnected) {
+      showToast('Backend is offline. Start the FastAPI backend first.');
+      return;
+    }
+    setConnectPending(true);
+    try {
+      const result = await connectGroww();
+      if (!result) {
+        showToast('Groww connection failed. Check backend credentials and API logs.');
+        return;
+      }
+
+      const auth = await fetchGrowwAuthStatus();
+      setGrowwAuth(auth);
+      if (!auth?.authenticated) {
+        showToast('Groww authentication did not complete. Check Groww credentials.');
+        return;
+      }
+
+      const [statusRes, profile, holdings, margins, overview, liveIndices] = await Promise.all([
+        fetchMarketStatus(),
+        fetchGrowwUserProfile(),
+        fetchGrowwHoldings(),
+        fetchGrowwMargins(),
+        fetchMarketOverview(),
+        fetchGrowwMarketIndices(),
+      ]);
+      if (statusRes) {
+        setMarketStatusDetail((prev) => ({
+          ...prev,
+          marketStatus: statusRes.marketStatus,
+          priceType: statusRes.priceType,
+          reason: statusRes.reason,
+          isTradingDay: statusRes.isTradingDay,
+          holidayName: statusRes.holidayName ?? undefined,
+          lastTradingSessionDate: statusRes.lastTradingSessionDate,
+          previousTradingSessionDate: statusRes.previousTradingSessionDate,
+          formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
+        }));
+      }
+      if (profile) setGrowwProfile(profile);
+      setGrowwHoldings(holdings);
+      setGrowwMargins(margins);
+      const holdingLtps = await fetchGrowwBatchLTP(holdings.map((holding) => holding.trading_symbol));
+      setGrowwHoldingLtps(holdingLtps);
+      applyLiveOverview(overview);
+      applyLiveIndices(liveIndices);
+      setCurrentUser((prev) => ({
+        email: profile?.ucc ? `groww.${profile.ucc}@sevenseascapital.in` : (prev?.email || ''),
+        name: profile?.ucc ? `Groww User (${profile.ucc})` : (prev?.name || 'Groww User'),
+        provider: 'groww',
+        role: 'Active Broker Account',
+      }));
+      setIsSimulating(false);
+      const feed = await connectGrowwMarketFeed();
+      if (!overview && (!liveIndices || Object.keys(liveIndices.indices).length === 0)) {
+        showToast('Groww connected, but market data is unavailable. Check stock symbols/tokens.');
+      } else if (!feed) {
+        showToast('Groww connected and quotes loaded; live stream could not start.');
+      } else {
+        const stocksLoaded = overview?.stocks.filter((item) => item.ltp != null).length ?? 0;
+        const indexesLoaded = liveIndices ? Object.keys(liveIndices.indices).length : 0;
+        showToast(`Groww connected: ${stocksLoaded} stocks and ${indexesLoaded} indices loaded.`);
+      }
+    } catch {
+      showToast('Could not connect Groww. Check backend logs and .env configuration.');
+    } finally {
+      setConnectPending(false);
+    }
+  };
+
   const handleRefreshData = async () => {
     if (backendConnected) {
       try {
-        const holdings = await fetchGrowwHoldings();
+        const [statusRes, holdings, margins, overview, liveIndices] = await Promise.all([
+          fetchMarketStatus(),
+          fetchGrowwHoldings(),
+          fetchGrowwMargins(),
+          fetchMarketOverview(),
+          fetchGrowwMarketIndices(),
+        ]);
+        if (statusRes) {
+          setMarketStatusDetail((prev) => ({
+            ...prev,
+            marketStatus: statusRes.marketStatus,
+            priceType: statusRes.priceType,
+            reason: statusRes.reason,
+            isTradingDay: statusRes.isTradingDay,
+            holidayName: statusRes.holidayName ?? undefined,
+            lastTradingSessionDate: statusRes.lastTradingSessionDate,
+            previousTradingSessionDate: statusRes.previousTradingSessionDate,
+            formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
+          }));
+        }
+        if (overview) applyLiveOverview(overview);
+        if (liveIndices) applyLiveIndices(liveIndices);
+        setGrowwHoldings(holdings);
+        setGrowwMargins(margins);
+        const holdingLtps = await fetchGrowwBatchLTP(holdings.map((holding) => holding.trading_symbol));
+        setGrowwHoldingLtps(holdingLtps);
         if (holdings.length > 0) {
-          setGrowwHoldings(holdings);
-          const holdingSymbols = holdings.map((h) => h.trading_symbol);
-          const holdingLtps = await fetchGrowwBatchLTP(holdingSymbols);
           if (Object.keys(holdingLtps).length > 0) {
             setStocksRadar((prev) =>
               prev.map((s) => {
@@ -923,6 +1261,75 @@ export default function App() {
     showToast('Signed out from trading session');
   };
 
+  const liveDataConnected = Boolean(backendConnected && growwAuth?.authenticated);
+  const dashboardStocks = liveDataConnected
+    ? (marketOverview
+        ? stocksRadar.filter((stock) => marketOverview.stocks.some(
+            (item) => item.symbol.toUpperCase() === stock.symbol.toUpperCase() && item.ltp != null
+          ))
+        : [])
+    : stocksRadar;
+
+  const livePortfolioSummary: PortfolioSummaryValues | null = liveDataConnected
+    ? (() => {
+        const rows = growwHoldings.map((holding) => {
+          const rawSymbol = holding.trading_symbol.toUpperCase();
+          const cleanSymbol = rawSymbol
+            .replace(/^(NSE|BSE)[-_]/, '')
+            .replace(/-(EQ|BE)$/, '');
+          const marketRow = marketOverview?.stocks.find((row) =>
+            [row.symbol.toUpperCase(), (row.groww_symbol || '').toUpperCase()]
+              .some((candidate) => candidate === rawSymbol || candidate === cleanSymbol || candidate.endsWith(`-${cleanSymbol}`))
+              && row.ltp != null
+          );
+          const batchLtp =
+            growwHoldingLtps[`NSE_${rawSymbol}`] ??
+            growwHoldingLtps[`NSE_${cleanSymbol}`] ??
+            growwHoldingLtps[rawSymbol] ??
+            growwHoldingLtps[cleanSymbol];
+          const ltp = marketRow?.ltp ?? (batchLtp != null ? Number(batchLtp) : null);
+          return {
+            quantity: Number(holding.quantity || 0),
+            averagePrice: Number(holding.average_price || 0),
+            ltp: ltp != null && Number.isFinite(ltp) ? ltp : null,
+            change: marketRow?.change ?? null,
+          };
+        });
+
+        const allHoldingsPriced = rows.every((row) => row.ltp != null);
+        const invested = rows.reduce((sum, row) => sum + row.quantity * row.averagePrice, 0);
+        const currentValue = allHoldingsPriced
+          ? rows.reduce((sum, row) => sum + row.quantity * (row.ltp ?? 0), 0)
+          : null;
+        const overallPnl = currentValue == null ? null : currentValue - invested;
+        const allDayChangesAvailable = rows.every((row) => row.change != null);
+        const dayPnl = allDayChangesAvailable
+          ? rows.reduce((sum, row) => sum + row.quantity * (row.change ?? 0), 0)
+          : null;
+        const priorValue = allDayChangesAvailable
+          ? rows.reduce((sum, row) => {
+              const ltp = row.ltp ?? 0;
+              return sum + row.quantity * (ltp - (row.change ?? 0));
+            }, 0)
+          : 0;
+        const clearCash = growwMargins?.clear_cash;
+        return {
+          totalValue: currentValue != null && clearCash != null
+            ? currentValue + Number(clearCash)
+            : null,
+          availableMargin: growwMargins
+            ? Number(growwMargins.clear_cash ?? 0) + Number(growwMargins.collateral_available ?? 0)
+            : null,
+          usedMargin: growwMargins?.net_margin_used ?? null,
+          dayPnl,
+          dayPnlPercent: dayPnl != null && priorValue > 0 ? (dayPnl / priorValue) * 100 : null,
+          overallPnl,
+          overallPnlPercent: overallPnl != null && invested > 0 ? (overallPnl / invested) * 100 : null,
+          openPositionsCount: growwHoldings.length,
+          winRate: null,
+        };
+      })()
+    : null;
   // Dedicated Login Page when user is unauthenticated
   if (!currentUser) {
     return (
@@ -986,6 +1393,7 @@ export default function App() {
           backendConnected={backendConnected}
           growwAuth={growwAuth}
           wsConnected={wsConnected}
+          marketStatusDetail={marketStatusDetail}
         />
 
         {/* Page Body: Dynamic View Switching adhering to strict trader workflow */}
@@ -1000,6 +1408,7 @@ export default function App() {
               onSetAlert={handleSetAlert}
               onRemoveAlert={handleRemoveAlert}
               theme={theme}
+              marketDataConnected={Boolean(backendConnected && growwAuth?.authenticated)}
             />
           )}
 
@@ -1007,7 +1416,10 @@ export default function App() {
           {activeTab === 'dashboard' && (
             <DashboardView
               indices={indices}
-              stocks={stocksRadar}
+              stocks={dashboardStocks}
+              marketOverview={marketOverview}
+              liveDataConnected={liveDataConnected}
+              liveSummary={livePortfolioSummary}
               onSelectStock={handleSelectStock}
               onSelectStockBySymbol={(symbol) => {
                 const found =
@@ -1188,6 +1600,8 @@ export default function App() {
                 backendConnected={backendConnected}
                 growwAuth={growwAuth}
                 growwProfile={growwProfile}
+                onConnectGroww={handleConnectGroww}
+                connectPending={connectPending}
               />
             </div>
           )}

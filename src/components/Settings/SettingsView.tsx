@@ -6,12 +6,16 @@ interface SettingsViewProps {
   backendConnected?: boolean;
   growwAuth?: GrowwAuthStatus | null;
   growwProfile?: GrowwUserProfile | null;
+  onConnectGroww?: () => void;
+  connectPending?: boolean;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   backendConnected = false,
   growwAuth,
   growwProfile,
+  onConnectGroww,
+  connectPending = false,
 }) => {
   const [apiKey] = useState('••••••••••••••••••••••••••••••••');
   const [apiSecret] = useState('••••••••••••••••••••••••••••••••');
@@ -47,6 +51,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               }`}>
                 {backendConnected ? '🟢 Backend Connected (:8000)' : '🟡 Local Mode (213 Stocks Matrix)'}
               </span>
+              {onConnectGroww && (
+                <button
+                  type="button"
+                  onClick={onConnectGroww}
+                  disabled={!backendConnected || connectPending || Boolean(growwAuth?.authenticated)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:text-slate-500 text-white text-xs font-bold transition-colors"
+                >
+                  {growwAuth?.authenticated ? 'Groww Connected' : connectPending ? 'Connecting…' : 'Connect Groww'}
+                </button>
+              )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
               Connected to Sevenseas Capital FastAPI backend engine with Groww Trade & Market Feed SDK. Real-time ticks stream over Redis PubSub and WebSocket (<code className="font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">/ws/market</code>).
@@ -73,7 +87,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <input
                   type="text"
                   disabled
-                  value={growwAuth?.ucc || '9058145407'}
+                  value={growwAuth?.ucc || 'Not connected'}
                   className="w-full px-3 py-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono text-slate-700 dark:text-slate-300 cursor-not-allowed"
                 />
                 <Lock className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
@@ -91,7 +105,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <input
                   type="text"
                   disabled
-                  value={growwProfile?.active_segments?.join(', ') || 'CASH, FNO, COMMODITY'}
+                  value={growwProfile?.active_segments?.join(', ') || 'Available after connection'}
                   className="w-full px-3 py-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono text-slate-700 dark:text-slate-300 cursor-not-allowed"
                 />
                 <Lock className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
