@@ -61,7 +61,9 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
               <h2 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-slate-50 font-mono">
                 Trading Portfolio & Execution
               </h2>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${liveDataConnected
+                ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                : 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'}`}>
                 {liveDataConnected ? 'Groww Account' : 'Demo Data'}
               </span>
             </div>
@@ -125,7 +127,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
                   isDayUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
                 }`}
               >
-                <span>{isDayUp ? '+' : ''}{money(p?.dayPnl)}</span>
+                <span>{p?.dayPnl == null ? '—' : `${isDayUp ? '+' : ''}${money(p.dayPnl)}`}</span>
               </div>
               <div
                 className={`text-[11px] font-bold font-mono mt-0.5 flex items-center gap-0.5 ${
