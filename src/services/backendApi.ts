@@ -146,7 +146,7 @@ export interface LiveMarketTick {
 // Keep API credentials on the backend. Configure deployment URLs via Vite env vars.
 // Local development defaults to the Vite proxy (/api, /health, /ws).
 const isBrowser = typeof window !== 'undefined';
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
 const WS_BASE_URL = (() => {
   const configured = (import.meta.env.VITE_WS_BASE_URL || '').trim();
   if (configured) return configured;
@@ -292,20 +292,21 @@ export async function fetchGrowwHistoricalCandles(
     );
     if (!res.ok) return null;
     const payload: HistoricalCandleResponse = await res.json();
+    const rows = payload.candles || [];
     const toEpochSeconds = (value: unknown, index: number): number => {
       if (typeof value === 'number' && Number.isFinite(value)) {
         return Math.floor(value > 1e12 ? value / 1000 : value);
       }
       if (typeof value === 'string') {
-        const normalized = value.includes('T') || /[+-]\\d{2}:?\\d{2}$/.test(value)
+        const normalized = value.includes('T') || /[+-]\d{2}:?\d{2}$/.test(value)
           ? value
           : `${value.replace(' ', 'T')}+05:30`;
         const parsed = Date.parse(normalized);
         if (Number.isFinite(parsed)) return Math.floor(parsed / 1000);
       }
-      return Math.floor(Date.now() / 1000) - (payload.candles.length - index) * 300;
+      return Math.floor(Date.now() / 1000) - (rows.length - index) * 300;
     };
-    return (payload.candles || []).map((raw: any, index) => {
+    return rows.map((raw: any, index) => {
       const row = Array.isArray(raw)
         ? { time: raw[0], open: raw[1], high: raw[2], low: raw[3], close: raw[4], volume: raw[5] }
         : raw || {};
