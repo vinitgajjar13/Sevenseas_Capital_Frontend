@@ -73,7 +73,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       />
 
       {/* SECTION 5: Market Heatmaps (Overall Market + Sector Heatmaps) */}
-      <MarketHeatmaps stocks={stocks} onSelectStock={onSelectStockBySymbol} theme={theme} />
+      <MarketHeatmaps
+        stocks={stocks}
+        onSelectStock={onSelectStockBySymbol}
+        theme={theme}
+        marketOverview={marketOverview}
+        liveDataConnected={liveDataConnected}
+      />
     </div>
   );
 };
