@@ -160,6 +160,7 @@ export default function App() {
   const [connectPending, setConnectPending] = useState<boolean>(false);
   const wsClientRef = useRef<MarketWebSocketClient | null>(null);
   const tokenToSymbolMapRef = useRef<Map<number | string, string>>(new Map());
+  const previousCloseRef = useRef<Map<string, number>>(new Map());
 
   // Price Alerts State & Persistence
   const [priceAlerts, setPriceAlerts] = useState<PriceAlert[]>(() => {
@@ -192,6 +193,11 @@ export default function App() {
 
     const liveBySymbol = new Map(
       overview.stocks.map((item) => [item.symbol.toUpperCase(), item])
+    );
+    previousCloseRef.current = new Map(
+      overview.stocks
+        .filter((item) => item.previous_close != null && Number.isFinite(item.previous_close))
+        .map((item) => [item.symbol.toUpperCase(), Number(item.previous_close)])
     );
     setStocksRadar((previous) => previous.map((stock) => {
       const item = liveBySymbol.get(stock.symbol.toUpperCase());
@@ -333,22 +339,48 @@ export default function App() {
             if (!tickPrice) return;
 
             if (symbol) {
+              const symbolKey = symbol.toUpperCase();
               setStocksRadar((prev) =>
                 prev.map((stk) => {
-                  if (stk.symbol.toUpperCase() === symbol!.toUpperCase()) {
-                    const newChange = +(tickPrice - stk.open915).toFixed(2);
-                    const newChangePct = +((newChange / stk.open915) * 100).toFixed(2);
-                    return {
-                      ...stk,
-                      ltp: tickPrice,
-                      change: newChange,
-                      changePercent: newChangePct,
-                      volume: tick.volume_traded ?? tick.volume ?? stk.volume,
-                    };
-                  }
-                  return stk;
+                  if (stk.symbol.toUpperCase() !== symbolKey) return stk;
+                  const base = previousCloseRef.current.get(symbolKey) ?? stk.open915;
+                  const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
+                  const dayChangePct = tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : stk.changePercent);
+                  return {
+                    ...stk,
+                    ltp: tickPrice,
+                    change: dayChange,
+                    changePercent: dayChangePct,
+                    volume: tick.volume_traded ?? tick.volume ?? stk.volume,
+                  };
                 })
               );
+              setActiveStockDetail((prev) => {
+                if (!prev || prev.symbol.toUpperCase() !== symbolKey) return prev;
+                const base = previousCloseRef.current.get(symbolKey) ?? prev.open915;
+                const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
+                const dayChangePct = tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : prev.changePercent);
+                return {
+                  ...prev,
+                  ltp: tickPrice,
+                  change: dayChange,
+                  changePercent: dayChangePct,
+                  volume: tick.volume_traded ?? tick.volume ?? prev.volume,
+                };
+              });
+              setWatchlistStocks((prev) => prev.map((stock) => {
+                if (stock.symbol.toUpperCase() !== symbolKey) return stock;
+                const base = previousCloseRef.current.get(symbolKey) ?? stock.open915 ?? tickPrice;
+                const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
+                return {
+                  ...stock,
+                  ltp: tickPrice,
+                  change: dayChange,
+                  changePercent: tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : stock.changePercent),
+                  volume: tick.volume_traded ?? tick.volume ?? stock.volume,
+                  sparkline: [...(stock.sparkline || []).slice(-5), tickPrice],
+                };
+              }));
             }
           });
 
