@@ -24,6 +24,17 @@ export interface GrowwUserProfile {
   active_segments: string[];
 }
 
+export interface GrowwMargins {
+  clear_cash?: number | null;
+  net_margin_used?: number | null;
+  brokerage_and_charges?: number | null;
+  collateral_used?: number | null;
+  collateral_available?: number | null;
+  equity_margin_details?: Record<string, unknown> | null;
+  fno_margin_details?: Record<string, unknown> | null;
+  commodity_margin_details?: Record<string, unknown> | null;
+}
+
 export interface GrowwHolding {
   isin: string;
   trading_symbol: string;
@@ -406,6 +417,19 @@ export async function fetchGrowwHoldings(): Promise<GrowwHolding[]> {
     return data.holdings || [];
   } catch {
     return [];
+  }
+}
+
+/** Fetch actual Groww margin/funds details from the backend. */
+export async function fetchGrowwMargins(): Promise<GrowwMargins | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/groww/user/margins`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
 }
 
