@@ -65,6 +65,7 @@ import {
   MarketOverview,
   MarketRadarResponse,
   GrowwMarketIndicesResponse,
+  BackendHealthResponse,
 } from './services/backendApi';
 import { MarketStatusDetail, getIndianMarketStatus } from './utils/marketHours';
 
@@ -205,7 +206,7 @@ export default function App() {
   }, [priceAlerts]);
 
   // Apply market facts and Excel strategy data supplied by backend overview
-  const applyLiveOverview = useCallback((overview: MarketOverview | null) => {
+  const applyLiveOverview = useCallback((overview: MarketOverview | null, explicitPriceType?: 'LIVE' | 'LAST_CLOSE') => {
     if (!overview) return;
     setMarketOverview(overview);
     setBreadth({
@@ -215,7 +216,7 @@ export default function App() {
       total: overview.advances + overview.declines + overview.unchanged,
     });
 
-    const currentPriceType = marketStatusDetail.priceType;
+    const currentPriceType = explicitPriceType ?? marketStatusDetail.priceType;
     const liveBySymbol = new Map(
       overview.stocks.map((item) => [item.symbol.toUpperCase(), item])
     );
@@ -337,7 +338,7 @@ export default function App() {
     }));
   }, [marketStatusDetail.priceType]);
 
-  const applyLiveIndices = useCallback((response: GrowwMarketIndicesResponse | null) => {
+  const applyLiveIndices = useCallback((response: GrowwMarketIndicesResponse | null, explicitPriceType?: 'LIVE' | 'LAST_CLOSE') => {
     if (!response) return;
     setIndices((previous) => {
       const next = { ...previous };
@@ -363,7 +364,7 @@ export default function App() {
           week52High: quote.week52High ?? oldIndex.week52High,
           week52Low: quote.week52Low ?? oldIndex.week52Low,
           marketStatus: (quote.marketStatus === 'OPEN' || response.marketStatus === 'OPEN') ? 'Market Open' : 'Market Closed',
-          priceType: quote.priceType ?? response.priceType ?? marketStatusDetail.priceType,
+          priceType: explicitPriceType ?? quote.priceType ?? response.priceType ?? marketStatusDetail.priceType,
           lastUpdated: quote.lastUpdated ?? response.lastUpdated,
         };
       });
@@ -443,19 +444,78 @@ export default function App() {
     });
   }, [playAlertChime, showToast]);
 
+  const isFetchingMarketDataRef = useRef<boolean>(false);
+
+  // Reusable, non-overlapping fetch of public market snapshot, overview, radar, and indices
+  const loadMarketData = useCallback(async () => {
+    if (isFetchingMarketDataRef.current) return;
+    isFetchingMarketDataRef.current = true;
+    try {
+      const [statusRes, overview, radarRes, liveIndices] = await Promise.all([
+        fetchMarketStatus(),
+        fetchMarketOverview(),
+        fetchMarketRadar(),
+        fetchGrowwMarketIndices(),
+      ]);
+
+      let currentPriceType = marketStatusDetail.priceType;
+      if (statusRes) {
+        currentPriceType = statusRes.priceType;
+        setMarketStatusDetail((prev) => ({
+          ...prev,
+          marketStatus: statusRes.marketStatus,
+          priceType: statusRes.priceType,
+          reason: statusRes.reason,
+          isTradingDay: statusRes.isTradingDay,
+          holidayName: statusRes.holidayName ?? undefined,
+          lastTradingSessionDate: statusRes.lastTradingSessionDate,
+          previousTradingSessionDate: statusRes.previousTradingSessionDate,
+          formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
+        }));
+      }
+      if (radarRes) setMarketRadarData(radarRes);
+      if (overview) applyLiveOverview(overview, currentPriceType);
+      if (liveIndices) applyLiveIndices(liveIndices, currentPriceType);
+      if (overview || liveIndices) setIsSimulating(false);
+
+      // Re-verify Groww Auth status after public market endpoints triggered backend TOTP auth
+      const auth = await fetchGrowwAuthStatus();
+      if (auth) setGrowwAuth(auth);
+    } catch {
+      // Gracefully handle network/temporary errors
+    } finally {
+      isFetchingMarketDataRef.current = false;
+    }
+  }, [applyLiveOverview, applyLiveIndices, marketStatusDetail.priceType]);
+
+  const loadMarketDataRef = useRef(loadMarketData);
+  useEffect(() => {
+    loadMarketDataRef.current = loadMarketData;
+  }, [loadMarketData]);
+
   // Initial Backend Connection & Real-Time WebSocket Handshake
   useEffect(() => {
     let isMounted = true;
 
     const initializeBackend = async () => {
       try {
-        const health = await checkBackendHealth();
+        // 1. Bounded health-check retry loop (5 attempts with backoff) for cold startup
+        let health: BackendHealthResponse | null = null;
+        const maxRetries = 5;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          if (!isMounted) return;
+          health = await checkBackendHealth();
+          if (health && health.status === 'ok') break;
+          if (attempt < maxRetries) {
+            await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * attempt, 2500)));
+          }
+        }
         if (!isMounted) return;
 
         if (health && health.status === 'ok') {
           setBackendConnected(true);
 
-          // Populate token to symbol mapping
+          // 2. Populate token to symbol mapping
           const backendStocks = await fetchBackendStocks();
           if (isMounted && backendStocks.length > 0) {
             const tokenMap = new Map<number | string, string>();
@@ -466,11 +526,14 @@ export default function App() {
             tokenToSymbolMapRef.current = tokenMap;
           }
 
-          // Check Groww Auth Status
-          const auth = await fetchGrowwAuthStatus();
-          if (isMounted) setGrowwAuth(auth);
-          if (isMounted && auth?.authenticated) {
+          // 3. Immediately load public market status, overview, radar, and indices regardless of Groww auth
+          await loadMarketDataRef.current();
+          if (!isMounted) return;
 
+          // 4. Check Groww Auth Status for broker-specific user features (holdings, profile, margins)
+          const auth = await fetchGrowwAuthStatus();
+          if (isMounted && auth) setGrowwAuth(auth);
+          if (isMounted && auth?.authenticated) {
             // Fetch User Profile
             const profile = await fetchGrowwUserProfile();
             if (isMounted && profile) {
@@ -497,7 +560,7 @@ export default function App() {
               setGrowwHoldings(holdings);
               setGrowwMargins(margins);
             }
-            if (holdings.length > 0) {
+            if (holdings && holdings.length > 0) {
               const holdingSymbols = holdings.map((h) => h.trading_symbol);
               const holdingLtps = await fetchGrowwBatchLTP(holdingSymbols);
               if (isMounted) setGrowwHoldingLtps(holdingLtps);
@@ -522,43 +585,20 @@ export default function App() {
               }
             }
 
-            // Load real quotes/OHLC, verified market calendar status, and Excel strategy radar.
-            const [statusRes, overview, radarRes, liveIndices] = await Promise.all([
-              fetchMarketStatus(),
-              fetchMarketOverview(),
-              fetchMarketRadar(),
-              fetchGrowwMarketIndices(),
-            ]);
-            if (isMounted && statusRes) {
-              setMarketStatusDetail((prev) => ({
-                ...prev,
-                marketStatus: statusRes.marketStatus,
-                priceType: statusRes.priceType,
-                reason: statusRes.reason,
-                isTradingDay: statusRes.isTradingDay,
-                holidayName: statusRes.holidayName ?? undefined,
-                lastTradingSessionDate: statusRes.lastTradingSessionDate,
-                previousTradingSessionDate: statusRes.previousTradingSessionDate,
-                formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
-              }));
-            }
-            if (isMounted) {
-              if (radarRes) setMarketRadarData(radarRes);
-              applyLiveOverview(overview);
-              applyLiveIndices(liveIndices);
-              if (overview || liveIndices) setIsSimulating(false);
-            }
-
             // Trigger backend feed connection.
             connectGrowwMarketFeed().catch(() => {});
           }
 
-          // Initialize WebSocket
+          // 5. Initialize WebSocket
           const ws = new MarketWebSocketClient();
           wsClientRef.current = ws;
 
           ws.onStatusChange((connected) => {
             if (isMounted) setWsConnected(connected);
+            if (connected && isMounted) {
+              // Ensure full snapshot is present on initial connect or reconnect
+              loadMarketDataRef.current();
+            }
           });
 
           ws.onTick((tick: LiveMarketTick) => {
@@ -753,6 +793,33 @@ export default function App() {
     };
   }, [applyLiveOverview, applyLiveIndices, checkAndTriggerAlerts]);
 
+  // Periodic background refresh & window-focus refresh to keep market data up to date
+  useEffect(() => {
+    if (!backendConnected) return;
+
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        loadMarketDataRef.current();
+      }
+    };
+
+    // Lightweight 25-second poll while tab is active to refresh overview & strategy status
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadMarketDataRef.current();
+      }
+    }, 25000);
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, [backendConnected]);
+
   // Calculate live unrealized P&L
   const totalUnrealizedPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
 
@@ -882,9 +949,15 @@ export default function App() {
 
   // Tick simulation effect for realistic market heartbeat
   useEffect(() => {
-    // Never mutate quotes with synthetic ticks while real Groww data is active,
+    // Never mutate quotes with synthetic ticks while real backend data is active,
     // or when Indian markets are closed (preserves true official closing prices).
-    if (!isSimulating || (backendConnected && growwAuth?.authenticated) || marketStatusDetail.marketStatus === 'CLOSED') return;
+    if (
+      !isSimulating ||
+      (backendConnected && (growwAuth?.authenticated || (marketOverview != null && marketOverview.stocks.length > 0))) ||
+      marketStatusDetail.marketStatus === 'CLOSED'
+    ) {
+      return;
+    }
 
     const interval = setInterval(() => {
       // 1. Slightly fluctuate indices
@@ -1059,7 +1132,7 @@ export default function App() {
     }, 1200);
 
     return () => clearInterval(interval);
-  }, [isSimulating, backendConnected, growwAuth?.authenticated, marketStatusDetail.marketStatus]);
+  }, [isSimulating, backendConnected, growwAuth?.authenticated, marketOverview, marketStatusDetail.marketStatus]);
 
   // Click Sector Handler: Opens Sector Detail View
   const handleSelectSector = (sectorName: string | null) => {
@@ -1340,53 +1413,36 @@ export default function App() {
   const handleRefreshData = async () => {
     if (backendConnected) {
       try {
-        const [statusRes, holdings, margins, overview, radarRes, liveIndices] = await Promise.all([
-          fetchMarketStatus(),
-          fetchGrowwHoldings(),
-          fetchGrowwMargins(),
-          fetchMarketOverview(),
-          fetchMarketRadar(),
-          fetchGrowwMarketIndices(),
-        ]);
-        if (statusRes) {
-          setMarketStatusDetail((prev) => ({
-            ...prev,
-            marketStatus: statusRes.marketStatus,
-            priceType: statusRes.priceType,
-            reason: statusRes.reason,
-            isTradingDay: statusRes.isTradingDay,
-            holidayName: statusRes.holidayName ?? undefined,
-            lastTradingSessionDate: statusRes.lastTradingSessionDate,
-            previousTradingSessionDate: statusRes.previousTradingSessionDate,
-            formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
-          }));
-        }
-        if (radarRes) setMarketRadarData(radarRes);
-        if (overview) applyLiveOverview(overview);
-        if (liveIndices) applyLiveIndices(liveIndices);
-        setGrowwHoldings(holdings);
-        setGrowwMargins(margins);
-        const holdingLtps = await fetchGrowwBatchLTP(holdings.map((holding) => holding.trading_symbol));
-        setGrowwHoldingLtps(holdingLtps);
-        if (holdings.length > 0) {
-          if (Object.keys(holdingLtps).length > 0) {
-            setStocksRadar((prev) =>
-              prev.map((s) => {
-                const key = `NSE_${s.symbol}`;
-                if (holdingLtps[key]) {
-                  const newLtp = holdingLtps[key];
-                  const newChange = +(newLtp - s.open915).toFixed(2);
-                  const newChangePct = +((newChange / s.open915) * 100).toFixed(2);
-                  return {
-                    ...s,
-                    ltp: newLtp,
-                    change: newChange,
-                    changePercent: newChangePct,
-                  };
-                }
-                return s;
-              })
-            );
+        await loadMarketDataRef.current();
+        if (growwAuth?.authenticated) {
+          const [holdings, margins] = await Promise.all([
+            fetchGrowwHoldings(),
+            fetchGrowwMargins(),
+          ]);
+          setGrowwHoldings(holdings);
+          setGrowwMargins(margins);
+          if (holdings.length > 0) {
+            const holdingLtps = await fetchGrowwBatchLTP(holdings.map((holding) => holding.trading_symbol));
+            setGrowwHoldingLtps(holdingLtps);
+            if (Object.keys(holdingLtps).length > 0) {
+              setStocksRadar((prev) =>
+                prev.map((s) => {
+                  const key = `NSE_${s.symbol}`;
+                  if (holdingLtps[key]) {
+                    const newLtp = holdingLtps[key];
+                    const newChange = +(newLtp - s.open915).toFixed(2);
+                    const newChangePct = +((newChange / s.open915) * 100).toFixed(2);
+                    return {
+                      ...s,
+                      ltp: newLtp,
+                      change: newChange,
+                      changePercent: newChangePct,
+                    };
+                  }
+                  return s;
+                })
+              );
+            }
           }
         }
         showToast('Holdings, Strategy Radar & Quotes refreshed');
@@ -1402,10 +1458,12 @@ export default function App() {
     showToast('Signed out from trading session');
   };
 
-  const liveDataConnected = Boolean(backendConnected && growwAuth?.authenticated);
+  const liveDataConnected = Boolean(
+    backendConnected && (growwAuth?.authenticated || (marketOverview != null && marketOverview.stocks.length > 0))
+  );
   const dashboardStocks = stocksRadar;
 
-  const livePortfolioSummary: PortfolioSummaryValues | null = liveDataConnected
+  const livePortfolioSummary: PortfolioSummaryValues | null = (liveDataConnected && growwAuth?.authenticated)
     ? (() => {
         const rows = growwHoldings.map((holding) => {
           const rawSymbol = holding.trading_symbol.toUpperCase();
@@ -1543,7 +1601,7 @@ export default function App() {
               onSetAlert={handleSetAlert}
               onRemoveAlert={handleRemoveAlert}
               theme={theme}
-              marketDataConnected={Boolean(backendConnected && growwAuth?.authenticated)}
+              marketDataConnected={liveDataConnected}
             />
           )}
 
