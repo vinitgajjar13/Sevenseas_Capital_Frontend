@@ -102,18 +102,77 @@ export function sortStocksByDynamicMarketState(stocks: StockRadarItem[]): StockR
 
     // Secondary priority within same category:
     // Highest percentage change first (strongest to weakest)
-    if (Math.abs(b.changePercent - a.changePercent) > 0.001) {
-      return b.changePercent - a.changePercent;
+    const pctA = typeof a.changePercent === 'number' && Number.isFinite(a.changePercent) ? a.changePercent : -Infinity;
+    const pctB = typeof b.changePercent === 'number' && Number.isFinite(b.changePercent) ? b.changePercent : -Infinity;
+    if (Math.abs(pctB - pctA) > 0.0001) {
+      return pctB - pctA;
     }
 
     // Tie breaker 1: Quant strength score
-    if (b.score !== a.score) {
-      return b.score - a.score;
+    const scoreA = typeof a.score === 'number' && Number.isFinite(a.score) ? a.score : 0;
+    const scoreB = typeof b.score === 'number' && Number.isFinite(b.score) ? b.score : 0;
+    if (scoreA !== scoreB) {
+      return scoreB - scoreA;
     }
 
     // Tie breaker 2: Relative volume (RVol)
-    return b.rvol - a.rvol;
+    const rvolA = typeof a.rvol === 'number' && Number.isFinite(a.rvol) ? a.rvol : 0;
+    const rvolB = typeof b.rvol === 'number' && Number.isFinite(b.rvol) ? b.rvol : 0;
+    if (rvolA !== rvolB) {
+      return rvolB - rvolA;
+    }
+
+    // Tie breaker 3: Deterministic symbol comparison (prevents flickering)
+    return a.symbol.localeCompare(b.symbol);
   });
+}
+
+/**
+ * Automatically sorts a stock list strictly by latest Change % descending (or ascending).
+ * Uses stable multi-tier tie-breakers:
+ * 1. Change % (finite values prioritized)
+ * 2. Quant strength score
+ * 3. Relative volume rvol
+ * 4. Symbol alphabetical (deterministic tie-breaker)
+ */
+export function sortStocksByChangePercent(stocks: StockRadarItem[], descending = true): StockRadarItem[] {
+  return [...stocks].sort((a, b) => {
+    const pctA = typeof a.changePercent === 'number' && Number.isFinite(a.changePercent) ? a.changePercent : -Infinity;
+    const pctB = typeof b.changePercent === 'number' && Number.isFinite(b.changePercent) ? b.changePercent : -Infinity;
+
+    if (Math.abs(pctA - pctB) > 0.0001) {
+      return descending ? pctB - pctA : pctA - pctB;
+    }
+
+    // Tie-breaker 1: Quant strength score
+    const scoreA = typeof a.score === 'number' && Number.isFinite(a.score) ? a.score : 0;
+    const scoreB = typeof b.score === 'number' && Number.isFinite(b.score) ? b.score : 0;
+    if (scoreA !== scoreB) {
+      return descending ? scoreB - scoreA : scoreA - scoreB;
+    }
+
+    // Tie-breaker 2: Relative volume (RVol)
+    const rvolA = typeof a.rvol === 'number' && Number.isFinite(a.rvol) ? a.rvol : 0;
+    const rvolB = typeof b.rvol === 'number' && Number.isFinite(b.rvol) ? b.rvol : 0;
+    if (rvolA !== rvolB) {
+      return descending ? rvolB - rvolA : rvolA - rvolB;
+    }
+
+    // Tie-breaker 3: Stable symbol alphabetical
+    return a.symbol.localeCompare(b.symbol);
+  });
+}
+
+/**
+ * Re-indexes rank and preserves prevRank when sorting stocks by Change % descending.
+ */
+export function assignChangePercentRanks(stocks: StockRadarItem[]): StockRadarItem[] {
+  const sorted = sortStocksByChangePercent(stocks, true);
+  return sorted.map((stk, idx) => ({
+    ...stk,
+    prevRank: stk.rank || idx + 1,
+    rank: idx + 1,
+  }));
 }
 
 export interface GroupedMarketStateStocks {

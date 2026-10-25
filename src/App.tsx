@@ -902,7 +902,7 @@ export default function App() {
         }
 
         showToast(`⚡ Live Re-Rank: ${target.symbol} transitioned from ${prevCls} to BULLISH (+${newChangePct}%)`);
-        return next;
+        return assignDynamicRanks(next);
       } else {
         // Switch the first stock from Bullish to Bearish
         const target = prevStocks[0];
@@ -936,7 +936,7 @@ export default function App() {
         }
 
         showToast(`⚡ Live Re-Rank: ${target.symbol} transitioned from ${prevCls} to BEARISH (${newChangePct}%)`);
-        return next;
+        return assignDynamicRanks(next);
       }
     });
   }, [activeStockDetail, showToast]);
@@ -1661,6 +1661,8 @@ export default function App() {
                 onSelectStock={handleSelectStock}
                 onSimulateTrade={handleSimulateTrade}
                 onSimulateStateTransition={handleSimulateStateTransition}
+                priceType={marketStatusDetail.priceType}
+                marketStatus={marketStatusDetail.marketStatus}
               />
             </div>
           )}

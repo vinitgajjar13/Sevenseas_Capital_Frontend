@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getStockClassification, assignDynamicRanks } from './stockRanking';
+import {
+  getStockClassification,
+  assignDynamicRanks,
+  sortStocksByChangePercent,
+  assignChangePercentRanks,
+} from './stockRanking';
 import { StockRadarItem } from '../types';
 
 const createBaseStock = (overrides: Partial<StockRadarItem> = {}): StockRadarItem =>
@@ -125,3 +130,103 @@ test('assignDynamicRanks handles empty array safely', () => {
   const ranked = assignDynamicRanks([]);
   assert.deepEqual(ranked, []);
 });
+
+test('sortStocksByChangePercent automatically orders stocks descending by Change %', () => {
+  const stocks: StockRadarItem[] = [
+    createBaseStock({ id: 's1', symbol: 'INFY', changePercent: 1.25 }),
+    createBaseStock({ id: 's2', symbol: 'TCS', changePercent: 3.40 }),
+    createBaseStock({ id: 's3', symbol: 'WIPRO', changePercent: -0.80 }),
+    createBaseStock({ id: 's4', symbol: 'HDFCBANK', changePercent: 0.15 }),
+  ];
+
+  const sorted = sortStocksByChangePercent(stocks, true);
+  assert.deepEqual(
+    sorted.map((s) => s.symbol),
+    ['TCS', 'INFY', 'HDFCBANK', 'WIPRO']
+  );
+  assert.equal(sorted[0].changePercent, 3.40);
+  assert.equal(sorted[3].changePercent, -0.80);
+});
+
+test('stocks automatically rise to higher rank when Change % increases', () => {
+  let stocks: StockRadarItem[] = [
+    createBaseStock({ id: 's1', symbol: 'INFY', changePercent: 1.25, rank: 1 }),
+    createBaseStock({ id: 's2', symbol: 'TCS', changePercent: 0.50, rank: 2 }),
+    createBaseStock({ id: 's3', symbol: 'WIPRO', changePercent: -0.20, rank: 3 }),
+  ];
+
+  let ranked = assignChangePercentRanks(stocks);
+  assert.equal(ranked[0].symbol, 'INFY');
+  assert.equal(ranked[0].rank, 1);
+  assert.equal(ranked[1].symbol, 'TCS');
+  assert.equal(ranked[1].rank, 2);
+
+  // Live price update pushes TCS Change % from 0.50% to 2.80% (rising above INFY)
+  stocks = stocks.map((s) => (s.symbol === 'TCS' ? { ...s, changePercent: 2.80 } : s));
+
+  ranked = assignChangePercentRanks(stocks);
+  // TCS must now be Rank #1, and recorded its previous rank of 2
+  assert.equal(ranked[0].symbol, 'TCS');
+  assert.equal(ranked[0].rank, 1);
+  assert.equal(ranked[0].prevRank, 2); // Transitioned from #2 to #1
+
+  // INFY dropped to Rank #2
+  assert.equal(ranked[1].symbol, 'INFY');
+  assert.equal(ranked[1].rank, 2);
+  assert.equal(ranked[1].prevRank, 1); // Transitioned from #1 to #2
+});
+
+test('stocks automatically fall to lower rank when Change % decreases', () => {
+  let stocks: StockRadarItem[] = [
+    createBaseStock({ id: 's1', symbol: 'INFY', changePercent: 2.50, rank: 1 }),
+    createBaseStock({ id: 's2', symbol: 'TCS', changePercent: 1.80, rank: 2 }),
+    createBaseStock({ id: 's3', symbol: 'WIPRO', changePercent: 0.50, rank: 3 }),
+  ];
+
+  let ranked = assignChangePercentRanks(stocks);
+  assert.equal(ranked[0].symbol, 'INFY');
+
+  // INFY suffers a sharp price drop, Change % falls from 2.50% to -1.10%
+  stocks = stocks.map((s) => (s.symbol === 'INFY' ? { ...s, changePercent: -1.10 } : s));
+
+  ranked = assignChangePercentRanks(stocks);
+  assert.equal(ranked[0].symbol, 'TCS');
+  assert.equal(ranked[0].rank, 1);
+  assert.equal(ranked[1].symbol, 'WIPRO');
+  assert.equal(ranked[1].rank, 2);
+  assert.equal(ranked[2].symbol, 'INFY');
+  assert.equal(ranked[2].rank, 3);
+  assert.equal(ranked[2].prevRank, 1); // Recorded drop from #1 to #3
+});
+
+test('sortStocksByChangePercent stably breaks ties using quant score, rvol, and symbol', () => {
+  const stocks: StockRadarItem[] = [
+    createBaseStock({ id: 's1', symbol: 'BETA', changePercent: 1.50, score: 70, rvol: 1.5 }),
+    createBaseStock({ id: 's2', symbol: 'ALPHA', changePercent: 1.50, score: 85, rvol: 1.5 }), // higher score
+    createBaseStock({ id: 's3', symbol: 'GAMMA', changePercent: 1.50, score: 70, rvol: 2.2 }), // higher rvol
+    createBaseStock({ id: 's4', symbol: 'DELTA', changePercent: 1.50, score: 70, rvol: 1.5 }),
+  ];
+
+  const sorted = sortStocksByChangePercent(stocks, true);
+  // ALPHA first (score 85)
+  assert.equal(sorted[0].symbol, 'ALPHA');
+  // GAMMA second (rvol 2.2)
+  assert.equal(sorted[1].symbol, 'GAMMA');
+  // BETA before DELTA (alphabetical tie-breaker: 'BETA' < 'DELTA')
+  assert.equal(sorted[2].symbol, 'BETA');
+  assert.equal(sorted[3].symbol, 'DELTA');
+});
+
+test('sortStocksByChangePercent handles non-finite or missing Change % safely', () => {
+  const stocks: StockRadarItem[] = [
+    createBaseStock({ id: 's1', symbol: 'CLEAN', changePercent: 1.20 }),
+    createBaseStock({ id: 's2', symbol: 'NO_REF', changePercent: NaN, hasReferenceData: false }),
+    createBaseStock({ id: 's3', symbol: 'NULL_PCT', changePercent: null as unknown as number }),
+  ];
+
+  const sorted = sortStocksByChangePercent(stocks, true);
+  assert.equal(sorted[0].symbol, 'CLEAN');
+  // Non-finite values safely pushed to the end without crashing
+  assert.equal(sorted.length, 3);
+});
+

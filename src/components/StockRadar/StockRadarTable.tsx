@@ -25,6 +25,7 @@ import { getFloatAndLiquidity } from '../../utils/liquidityMetrics';
 import {
   getStockClassification,
   sortStocksByDynamicMarketState,
+  sortStocksByChangePercent,
   getGroupedMarketStateStocks,
   MarketClassification,
 } from '../../utils/stockRanking';
@@ -58,6 +59,8 @@ interface StockRadarTableProps {
   onSelectForecast?: (stock: StockRadarItem) => void;
   onSimulateTrade?: (stock: StockRadarItem) => void;
   onSimulateStateTransition?: () => void;
+  priceType?: 'LIVE' | 'LAST_CLOSE';
+  marketStatus?: 'OPEN' | 'CLOSED';
 }
 
 export const StockRadarTable: React.FC<StockRadarTableProps> = ({
@@ -66,6 +69,8 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
   onSelectForecast,
   onSimulateTrade,
   onSimulateStateTransition,
+  priceType,
+  marketStatus,
 }) => {
   // Primary Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -79,9 +84,9 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
   const [minRvol, setMinRvol] = useState<number>(0);
   const [selectedPattern, setSelectedPattern] = useState<string>('ALL');
 
-  // Table View & Sorting
-  const [sortBy, setSortBy] = useState<'rank' | 'score' | 'changePercent' | 'rvol' | 'ltp'>('rank');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  // Table View & Sorting (Default to Change % descending to reflect live market momentum ranking)
+  const [sortBy, setSortBy] = useState<'changePercent' | 'rank' | 'score' | 'rvol' | 'ltp'>('changePercent');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [isCompact, setIsCompact] = useState<boolean>(false);
   const [showLiquidityColumn, setShowLiquidityColumn] = useState<boolean>(true);
 
@@ -125,9 +130,9 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
     setSelectedPattern('ALL');
   };
 
-  // Filter and dynamically sort stocks
+  // Filter and dynamically sort stocks based on the active ranking mode
   const filteredStocks = useMemo(() => {
-    let result = stocks.filter((stock) => {
+    const result = stocks.filter((stock) => {
       const matchesSearch =
         stock.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
         stock.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -179,20 +184,28 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
       );
     });
 
-    // Dynamic Live Stock Ranking (Default: Bullish -> Neutral -> Bearish, strongest to weakest)
+    // 1. Dynamic Change % Ranking (top gainers descending down to deepest losers)
+    if (sortBy === 'changePercent') {
+      return sortStocksByChangePercent(result, sortOrder === 'desc');
+    }
+
+    // 2. Dynamic Live Stock Ranking (Strategy State: Bullish -> Neutral -> Bearish)
     if (sortBy === 'rank') {
       const sorted = sortStocksByDynamicMarketState(result);
       return sortOrder === 'desc' ? sorted.reverse() : sorted;
     }
 
-    return result.sort((a, b) => {
+    // 3. User-selected column sorting with stable deterministic tie-breaker
+    return [...result].sort((a, b) => {
       let diff = 0;
-      if (sortBy === 'score') diff = a.score - b.score;
-      else if (sortBy === 'changePercent') diff = a.changePercent - b.changePercent;
-      else if (sortBy === 'rvol') diff = a.rvol - b.rvol;
-      else if (sortBy === 'ltp') diff = a.ltp - b.ltp;
+      if (sortBy === 'score') diff = (a.score || 0) - (b.score || 0);
+      else if (sortBy === 'rvol') diff = (a.rvol || 0) - (b.rvol || 0);
+      else if (sortBy === 'ltp') diff = (a.ltp || 0) - (b.ltp || 0);
 
-      return sortOrder === 'asc' ? diff : -diff;
+      if (Math.abs(diff) > 0.0001) {
+        return sortOrder === 'asc' ? diff : -diff;
+      }
+      return a.symbol.localeCompare(b.symbol);
     });
   }, [
     stocks,
@@ -206,6 +219,30 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
     sortBy,
     sortOrder,
   ]);
+
+  // Track previous ranks per symbol for real-time rank delta indicator and row transitions
+  const prevRankMapRef = React.useRef<Map<string, number>>(new Map());
+
+  // Real-time rank changes (deltas) calculated immediately when filteredStocks order updates
+  const rankDeltas = useMemo(() => {
+    const deltas = new Map<string, number>();
+    filteredStocks.forEach((stk, idx) => {
+      const currentRank = idx + 1;
+      const prev = prevRankMapRef.current.get(stk.symbol);
+      if (prev !== undefined && prev !== currentRank) {
+        deltas.set(stk.symbol, prev - currentRank); // positive = rose up, negative = dropped
+      }
+    });
+    return deltas;
+  }, [filteredStocks]);
+
+  React.useEffect(() => {
+    const nextMap = new Map<string, number>();
+    filteredStocks.forEach((stk, idx) => {
+      nextMap.set(stk.symbol, idx + 1);
+    });
+    prevRankMapRef.current = nextMap;
+  }, [filteredStocks]);
 
   const handleSort = (field: typeof sortBy) => {
     if (sortBy === field) {
@@ -338,6 +375,36 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
                 </option>
               ))}
             </select>
+
+            {/* Dynamic Ranking Mode Dropdown */}
+            <select
+              id="select-radar-ranking-mode"
+              value={sortBy}
+              onChange={(e) => {
+                const val = e.target.value as typeof sortBy;
+                setSortBy(val);
+                setSortOrder(val === 'rank' ? 'asc' : 'desc');
+              }}
+              className="px-2.5 py-1.5 text-xs bg-indigo-50/70 border border-indigo-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-600 text-indigo-950 font-bold"
+              title="Select dynamic ranking and sorting mode"
+            >
+              <option value="changePercent">Rank: Change % (Top Gainers)</option>
+              <option value="rank">Rank: Strategy State (Bull → Neutral → Bear)</option>
+              <option value="score">Rank: Quant Strength</option>
+              <option value="rvol">Rank: Volume Multiplier</option>
+              <option value="ltp">Rank: Price (LTP)</option>
+            </select>
+
+            {/* Last Close indicator when market is closed */}
+            {(priceType === 'LAST_CLOSE' || marketStatus === 'CLOSED') && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-300 text-[11px] font-bold font-mono whitespace-nowrap shadow-2xs"
+                title="Indian markets are closed. Prices & ranking order reflect official Last Close."
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span>LAST CLOSE</span>
+              </span>
+            )}
 
             {/* Quick Bullish / Neutral / Bearish / Watch / Spike-Dump Filter */}
             <div className="flex flex-wrap items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
@@ -577,7 +644,9 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
               <tr>
                 <th
                   onClick={() => handleSort('rank')}
-                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                  className={`py-2.5 px-3 cursor-pointer transition-colors ${
+                    sortBy === 'rank' ? 'bg-indigo-50/70 text-indigo-900 font-black' : 'hover:bg-slate-100'
+                  }`}
                 >
                   <div className="flex items-center gap-1">
                     <span>Rank</span>
@@ -587,7 +656,9 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
                 <th className="py-2.5 px-3">Stock & Sector</th>
                 <th
                   onClick={() => handleSort('ltp')}
-                  className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors"
+                  className={`py-2.5 px-3 text-right cursor-pointer transition-colors ${
+                    sortBy === 'ltp' ? 'bg-indigo-50/70 text-indigo-900 font-black' : 'hover:bg-slate-100'
+                  }`}
                 >
                   <div className="flex items-center justify-end gap-1">
                     <span>LTP / Live</span>
@@ -596,11 +667,21 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
                 </th>
                 <th
                   onClick={() => handleSort('changePercent')}
-                  className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors"
+                  className={`py-2.5 px-3 text-right cursor-pointer transition-colors ${
+                    sortBy === 'changePercent' ? 'bg-indigo-50/70 text-indigo-900 font-black' : 'hover:bg-slate-100'
+                  }`}
                 >
                   <div className="flex items-center justify-end gap-1">
                     <span>Change %</span>
-                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    {sortBy === 'changePercent' ? (
+                      sortOrder === 'desc' ? (
+                        <span className="text-indigo-600 font-mono text-[10px]">▼</span>
+                      ) : (
+                        <span className="text-indigo-600 font-mono text-[10px]">▲</span>
+                      )
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    )}
                   </div>
                 </th>
                 <th className="py-2.5 px-3 text-center">Trend</th>
@@ -657,8 +738,10 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
                   const classification = stock.marketClassification || getStockClassification(stock);
                   const pattern = detectCandlestickPattern(stock);
                   const levels = calculateSupportResistance(stock);
+                  const currentRank = index + 1;
+                  const rankDelta = rankDeltas.get(stock.symbol) || 0;
 
-                  // Check if we should insert a category divider row
+                  // Check if we should insert a category divider row (only in Strategy State ranking mode)
                   const prevStock = index > 0 ? filteredStocks[index - 1] : null;
                   const prevClassification = prevStock ? (prevStock.marketClassification || getStockClassification(prevStock)) : null;
                   const isNewCategory =
@@ -722,14 +805,38 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
                       <tr
                         id={`radar-row-${stock.symbol}`}
                         onClick={() => onSelectStock(stock)}
-                        className={`hover:bg-slate-50 transition-colors cursor-pointer group ${
+                        className={`transition-colors duration-300 cursor-pointer group ${
                           isCompact ? 'py-1' : 'py-2.5'
+                        } ${
+                          rankDelta > 0
+                            ? 'bg-emerald-50/40 hover:bg-emerald-100/40'
+                            : rankDelta < 0
+                            ? 'bg-rose-50/40 hover:bg-rose-100/40'
+                            : 'hover:bg-slate-50'
                         }`}
                       >
-                        {/* Rank */}
+                        {/* Dynamic Live Rank with transition delta indicator */}
                         <td className={`${isCompact ? 'py-1.5' : 'py-2.5'} px-3 font-mono font-bold text-slate-800`}>
                           <div className="flex flex-col">
-                            <span>#{stock.rank || index + 1}</span>
+                            <div className="flex items-center gap-1.5">
+                              <span>#{currentRank}</span>
+                              {rankDelta > 0 && (
+                                <span
+                                  className="inline-flex items-center text-[10px] font-extrabold text-emerald-600 animate-in fade-in"
+                                  title={`Rose ${rankDelta} position${rankDelta > 1 ? 's' : ''} on latest update`}
+                                >
+                                  ▲{rankDelta}
+                                </span>
+                              )}
+                              {rankDelta < 0 && (
+                                <span
+                                  className="inline-flex items-center text-[10px] font-extrabold text-rose-600 animate-in fade-in"
+                                  title={`Dropped ${Math.abs(rankDelta)} position${Math.abs(rankDelta) > 1 ? 's' : ''} on latest update`}
+                                >
+                                  ▼{Math.abs(rankDelta)}
+                                </span>
+                              )}
+                            </div>
                             {stock.bullishRank && classification === 'BULLISH' && (
                               <span className="text-[9px] text-emerald-700 font-semibold">Bull #{stock.bullishRank}</span>
                             )}
