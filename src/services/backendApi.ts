@@ -139,12 +139,13 @@ export interface SectorOverviewGroup {
 }
 
 export interface MarketOverviewStock {
-  id: number;
+  id?: number;
   symbol: string;
-  name: string;
-  sector_id: number;
-  sector: string;
-  exchange: string;
+  name?: string;
+  company_name?: string;
+  sector_id?: number;
+  sector?: string;
+  exchange?: string;
   groww_symbol?: string | null;
   groww_exchange_token?: number | null;
   ltp: number | null;
@@ -155,16 +156,58 @@ export interface MarketOverviewStock {
   low?: number | null;
   previous_close?: number | null;
   volume?: number | null;
-  data_source: 'groww' | 'unavailable' | string;
+  data_source?: 'groww' | 'unavailable' | string;
+  // Excel Strategy Fields from Backend
+  change_percent_915?: number | null;
+  bullish_watch?: boolean;
+  bearish_watch?: boolean;
+  watch_status?: string | null;
+  signal?: string | null;
+  action?: string | null;
+  strategy_state?: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  score?: number | null;
+  special_bullish?: string | null;
+  special_bearish?: string | null;
+  has_reference_data?: boolean;
+  pd_high?: number | null;
+  pd_low?: number | null;
+  open_915?: number | null;
+  close_915?: number | null;
+}
+
+export interface SectorTopStock {
+  symbol: string;
+  price?: number | null;
+  change_pct: number;
+  volume: number;
+  contribution_score: number;
 }
 
 export interface MarketOverviewSector {
   sector: string;
   total: number;
+  total_stocks?: number;
   advances: number;
   declines: number;
   unchanged: number;
+  positive_stocks?: number;
+  negative_stocks?: number;
+  avg_change?: number;
   average_change_percent: number | null;
+  bullish_pct?: number;
+  bearish_pct?: number;
+  live_volume?: number;
+  volume_per_stock?: number;
+  bullish_volume?: number;
+  bearish_volume?: number;
+  bullish_volume_pct?: number;
+  bearish_volume_pct?: number;
+  direction?: string;
+  score?: number;
+  bullish_rank?: number | null;
+  bearish_rank?: number | null;
+  top_bullish_stocks?: SectorTopStock[];
+  top_bearish_stocks?: SectorTopStock[];
 }
 
 export interface MarketOverview {
@@ -174,8 +217,35 @@ export interface MarketOverview {
   advances: number;
   declines: number;
   unchanged: number;
+  bullish_watch_count?: number;
+  bearish_watch_count?: number;
+  spike_count?: number;
+  dump_count?: number;
   sectors: MarketOverviewSector[];
   stocks: MarketOverviewStock[];
+}
+
+export interface MarketRadarSummary {
+  total_stocks: number;
+  advances: number;
+  declines: number;
+  bullish_watch_count: number;
+  bearish_watch_count: number;
+  spike_count: number;
+  dump_count: number;
+}
+
+export interface MarketRadarResponse {
+  updated_at: string;
+  market_status: 'OPEN' | 'CLOSED';
+  price_type: 'LIVE' | 'LAST_CLOSE';
+  summary: MarketRadarSummary;
+  top_bullish_sectors: MarketOverviewSector[];
+  top_bearish_sectors: MarketOverviewSector[];
+  sectors: MarketOverviewSector[];
+  watch_stocks: MarketOverviewStock[];
+  spike_dump_stocks: MarketOverviewStock[];
+  teacher_guidance: MarketOverviewStock[];
 }
 
 export interface GrowwIndexQuote {
@@ -244,8 +314,8 @@ export interface LiveMarketTick {
 // Keep API credentials on the backend. Configure deployment URLs via Vite env vars.
 // Local development defaults to the Vite proxy (/api, /health, /ws).
 const isBrowser = typeof window !== 'undefined';
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-const WS_BASE_URL = (() => {
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+export const WS_BASE_URL = (() => {
   const configured = (import.meta.env.VITE_WS_BASE_URL || '').trim();
   if (configured) return configured;
   if (!isBrowser) return 'ws://localhost:8000/ws/market';
@@ -344,6 +414,19 @@ export async function connectGroww(force = false): Promise<{ status?: string; me
 export async function fetchMarketOverview(limit = 250): Promise<MarketOverview | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/v1/market/overview?limit=${encodeURIComponent(String(limit))}`, {
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch complete Excel-based radar, sector ranks, and live teacher signals. */
+export async function fetchMarketRadar(): Promise<MarketRadarResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/market/radar`, {
       signal: AbortSignal.timeout(20000),
     });
     if (!res.ok) return null;

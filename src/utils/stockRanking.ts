@@ -4,16 +4,28 @@ export type { MarketClassification };
 
 /**
  * Determines current market classification for a stock based on real trading criteria:
- * 1. BULLISH
- * 2. NEUTRAL
- * 3. BEARISH
- * 
- * Priority is strictly:
- * - BULLISH: Positive momentum, breakout, above VWAP / high percentage gain or bullish status.
- * - NEUTRAL: Flat / range-bound / consolidating / minimal price deviation (-0.35% to +0.35%).
- * - BEARISH: Negative momentum, breakdown, below VWAP / negative drop or bearish status.
+ * 1. Backend Excel Strategy State (if supplied)
+ * 2. Real-time WATCH status and SPIKE/DUMP signals
+ * 3. Directional price momentum & VWAP
  */
 export function getStockClassification(stock: StockRadarItem): MarketClassification {
+  // 1. Direct Backend Strategy Engine state
+  if (stock.strategyState === 'BULLISH' || stock.strategyState === 'BEARISH' || stock.strategyState === 'NEUTRAL') {
+    return stock.strategyState;
+  }
+
+  // 2. Exact WATCH / SPIKE / DUMP status
+  if (stock.bullishWatch || stock.watchStatus?.includes('WATCH') && stock.watchStatus?.includes('🟢') || stock.signal === '🔥 SPIKE') {
+    return 'BULLISH';
+  }
+  if (stock.bearishWatch || stock.watchStatus?.includes('WATCH') && stock.watchStatus?.includes('🔴') || stock.signal === '🚨 DUMP') {
+    return 'BEARISH';
+  }
+
+  // 3. Teacher Action alignment
+  if (stock.teacherAction?.includes('BULL ALIGNED')) return 'BULLISH';
+  if (stock.teacherAction?.includes('BEAR ALIGNED')) return 'BEARISH';
+
   const pct = stock.changePercent;
   const isAboveVwap = stock.ltp >= (stock.vwap || stock.open915);
 
@@ -158,3 +170,16 @@ export function getGroupedMarketStateStocks(stocks: StockRadarItem[]): GroupedMa
     totalVisible: sorted.length,
   };
 }
+
+/**
+ * Re-indexes rank and preserves prevRank when sorting stocks by dynamic market state.
+ */
+export function assignDynamicRanks(stocks: StockRadarItem[]): StockRadarItem[] {
+  const sorted = sortStocksByDynamicMarketState(stocks);
+  return sorted.map((stk, idx) => ({
+    ...stk,
+    prevRank: stk.rank || idx + 1,
+    rank: idx + 1,
+  }));
+}
+

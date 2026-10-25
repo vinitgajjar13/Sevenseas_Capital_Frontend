@@ -168,6 +168,30 @@ export const SectorStockDrilldown: React.FC<SectorStockDrilldownProps> = ({
                 {formatINR(totalAllocatedCapital)}
               </strong>
             </p>
+            {((sector.topBullishStocks && sector.topBullishStocks.length > 0) || (sector.topBearishStocks && sector.topBearishStocks.length > 0)) && (
+              <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] font-mono">
+                {sector.topBullishStocks && sector.topBullishStocks.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-emerald-700 dark:text-emerald-400 font-bold">Leaders:</span>
+                    {sector.topBullishStocks.map((stk, i) => (
+                      <span key={stk.symbol} className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        UP{i + 1}: <strong>{stk.symbol}</strong> ({stk.change_pct >= 0 ? '+' : ''}{stk.change_pct.toFixed(2)}%)
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {sector.topBearishStocks && sector.topBearishStocks.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-rose-700 dark:text-rose-400 font-bold">Laggards:</span>
+                    {sector.topBearishStocks.map((stk, i) => (
+                      <span key={stk.symbol} className="px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                        DOWN{i + 1}: <strong>{stk.symbol}</strong> ({stk.change_pct >= 0 ? '+' : ''}{stk.change_pct.toFixed(2)}%)
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

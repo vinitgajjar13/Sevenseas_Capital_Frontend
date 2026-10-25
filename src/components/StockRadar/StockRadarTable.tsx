@@ -70,7 +70,7 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
   // Primary Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSector, setSelectedSector] = useState<string>('ALL');
-  const [sentimentFilter, setSentimentFilter] = useState<'ALL' | 'BULL' | 'NEUTRAL' | 'BEAR'>('ALL');
+  const [sentimentFilter, setSentimentFilter] = useState<'ALL' | 'BULL' | 'NEUTRAL' | 'BEAR' | 'WATCH' | 'SPIKE_DUMP'>('ALL');
 
   // Secondary Collapsible Filters
   const [showSecondaryFilters, setShowSecondaryFilters] = useState(false);
@@ -88,6 +88,15 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
   // Grouped and ranked statistics for the entire stock radar
   const groupedRadarStats = useMemo(() => {
     return getGroupedMarketStateStocks(stocks);
+  }, [stocks]);
+
+  // Strategy Watch and Spike/Dump counts from backend
+  const watchCount = useMemo(() => {
+    return stocks.filter((s) => s.bullishWatch || s.bearishWatch || (s.watchStatus && s.watchStatus.includes('WATCH'))).length;
+  }, [stocks]);
+
+  const spikeDumpCount = useMemo(() => {
+    return stocks.filter((s) => s.signal && (s.signal.includes('SPIKE') || s.signal.includes('DUMP'))).length;
   }, [stocks]);
 
   // Extract unique sectors
@@ -126,8 +135,11 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
 
       const matchesSector = selectedSector === 'ALL' || stock.sector === selectedSector;
 
-      // Sentiment / Market Classification: BULLISH, NEUTRAL, BEARISH
+      // Sentiment / Market Classification: BULLISH, NEUTRAL, BEARISH, WATCH, SPIKE_DUMP
       const classification = stock.marketClassification || getStockClassification(stock);
+      const isWatch = Boolean(stock.bullishWatch || stock.bearishWatch || (stock.watchStatus && stock.watchStatus.includes('WATCH')));
+      const isSpikeDump = Boolean(stock.signal && (stock.signal.includes('SPIKE') || stock.signal.includes('DUMP')));
+
       const matchesSentiment =
         sentimentFilter === 'ALL'
           ? true
@@ -135,7 +147,11 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
           ? classification === 'BULLISH'
           : sentimentFilter === 'NEUTRAL'
           ? classification === 'NEUTRAL'
-          : classification === 'BEARISH';
+          : sentimentFilter === 'BEAR'
+          ? classification === 'BEARISH'
+          : sentimentFilter === 'WATCH'
+          ? isWatch
+          : isSpikeDump;
 
       // Slot
       const matchesSlot = selectedSlot === 'ALL' || stock.slot.includes(selectedSlot);
@@ -202,26 +218,90 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
 
   const getStatusBadge = (stock: StockRadarItem) => {
     const classification = stock.marketClassification || getStockClassification(stock);
+    const hasRef = stock.hasReferenceData !== false;
+    const isWatch = stock.bullishWatch || stock.bearishWatch || (stock.watchStatus && stock.watchStatus !== '-');
+    const hasSignal = stock.signal && stock.signal !== '-' && stock.signal !== 'null';
+
     return (
-      <span
-        className={`inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold font-mono tracking-wide shadow-2xs whitespace-nowrap ${
-          classification === 'BULLISH'
-            ? 'bg-emerald-600 text-white border border-emerald-700'
-            : classification === 'NEUTRAL'
-            ? 'bg-slate-600 text-white border border-slate-700'
-            : 'bg-rose-600 text-white border border-rose-700'
-        }`}
-        title={`Market Classification: ${classification} (${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%)`}
-      >
-        <span>
-          {classification === 'BULLISH'
-            ? '▲'
-            : classification === 'NEUTRAL'
-            ? '■'
-            : '▼'}
-        </span>
-        <span>{classification}</span>
-      </span>
+      <div className="flex flex-col items-center gap-1">
+        <div className="flex items-center justify-center gap-1 flex-wrap">
+          <span
+            className={`inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold font-mono tracking-wide shadow-2xs whitespace-nowrap ${
+              classification === 'BULLISH'
+                ? 'bg-emerald-600 text-white border border-emerald-700'
+                : classification === 'NEUTRAL'
+                ? 'bg-slate-600 text-white border border-slate-700'
+                : 'bg-rose-600 text-white border border-rose-700'
+            }`}
+            title={`Market Classification: ${classification} (${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%)`}
+          >
+            <span>
+              {classification === 'BULLISH'
+                ? '▲'
+                : classification === 'NEUTRAL'
+                ? '■'
+                : '▼'}
+            </span>
+            <span>{classification}</span>
+          </span>
+
+          {/* WATCH Badge */}
+          {isWatch && (
+            <span
+              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-black font-mono shadow-2xs whitespace-nowrap ${
+                stock.bullishWatch || (stock.watchStatus && stock.watchStatus.includes('🟢'))
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                  : 'bg-rose-50 text-rose-800 border border-rose-300'
+              }`}
+              title={`Excel Strategy Watch Status: ${stock.watchStatus || (stock.bullishWatch ? 'BULLISH WATCH' : 'BEARISH WATCH')}`}
+            >
+              <span>{stock.watchStatus || (stock.bullishWatch ? '🟢 WATCH' : '🔴 WATCH')}</span>
+            </span>
+          )}
+
+          {/* SPIKE / DUMP Signal Badge */}
+          {hasSignal && (
+            <span
+              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-black font-mono shadow-2xs whitespace-nowrap ${
+                stock.signal?.includes('SPIKE')
+                  ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
+                  : 'bg-rose-100 text-rose-900 border border-rose-300 animate-pulse'
+              }`}
+              title={`Excel Strategy Signal: ${stock.signal}`}
+            >
+              <span>{stock.signal}</span>
+            </span>
+          )}
+
+          {/* Missing Reference Data Indicator */}
+          {!hasRef && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[8px] font-bold font-mono bg-slate-100 text-slate-600 border border-slate-300"
+              title="Reference data (pd_high/pd_low/open_915) unavailable. Signals cannot be computed."
+            >
+              ⚠️ No Ref
+            </span>
+          )}
+        </div>
+
+        {/* Teacher Action Pill */}
+        {stock.teacherAction && stock.teacherAction !== '-' && (
+          <span
+            className={`inline-flex items-center px-1.5 py-0.2 rounded text-[8px] font-black font-mono uppercase tracking-wider ${
+              stock.teacherAction.includes('BULL')
+                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                : stock.teacherAction.includes('BEAR')
+                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                : stock.teacherAction.includes('CONFLICT')
+                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                : 'bg-slate-100 text-slate-700 border border-slate-200'
+            }`}
+            title={`Teacher Alignment Action: ${stock.teacherAction}`}
+          >
+            {stock.teacherAction}
+          </span>
+        )}
+      </div>
     );
   };
 
@@ -259,8 +339,8 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
               ))}
             </select>
 
-            {/* Quick Bullish / Neutral / Bearish Filter */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+            {/* Quick Bullish / Neutral / Bearish / Watch / Spike-Dump Filter */}
+            <div className="flex flex-wrap items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
               <button
                 onClick={() => setSentimentFilter('ALL')}
                 className={`px-2 py-1 rounded font-semibold transition-colors ${
@@ -300,6 +380,28 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
                 }`}
               >
                 Bear ({groupedRadarStats.bearish.length})
+              </button>
+              <button
+                onClick={() => setSentimentFilter('WATCH')}
+                className={`px-2 py-1 rounded font-semibold transition-colors ${
+                  sentimentFilter === 'WATCH'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-amber-800'
+                }`}
+                title="Excel Strategy Watch Status (Bullish or Bearish Watch Triggered)"
+              >
+                Watch ({watchCount})
+              </button>
+              <button
+                onClick={() => setSentimentFilter('SPIKE_DUMP')}
+                className={`px-2 py-1 rounded font-semibold transition-colors ${
+                  sentimentFilter === 'SPIKE_DUMP'
+                    ? 'bg-purple-700 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-purple-800'
+                }`}
+                title="Excel Strategy Spike / Dump Signals"
+              >
+                Spike/Dump ({spikeDumpCount})
               </button>
             </div>
 
@@ -626,7 +728,15 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
                       >
                         {/* Rank */}
                         <td className={`${isCompact ? 'py-1.5' : 'py-2.5'} px-3 font-mono font-bold text-slate-800`}>
-                          #{index + 1}
+                          <div className="flex flex-col">
+                            <span>#{stock.rank || index + 1}</span>
+                            {stock.bullishRank && classification === 'BULLISH' && (
+                              <span className="text-[9px] text-emerald-700 font-semibold">Bull #{stock.bullishRank}</span>
+                            )}
+                            {stock.bearishRank && classification === 'BEARISH' && (
+                              <span className="text-[9px] text-rose-700 font-semibold">Bear #{stock.bearishRank}</span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Stock & Sector */}
@@ -679,15 +789,25 @@ export const StockRadarTable: React.FC<StockRadarTableProps> = ({
 
                         {/* LTP / Price */}
                         <td className={`${isCompact ? 'py-1.5' : 'py-2.5'} px-3 text-right font-mono font-bold text-slate-900 tabular-nums`}>
-                          <div>{formatINR(stock.ltp)}</div>
+                          <div>{stock.ltp != null && stock.ltp > 0 ? formatINR(stock.ltp) : '—'}</div>
                           <span
                             className={`inline-block px-1 py-0.2 text-[8px] font-black uppercase tracking-wider rounded ${
-                              stock.priceType === 'LAST_CLOSE'
+                              stock.dataSource === 'UNAVAILABLE' || stock.ltp == null
+                                ? 'bg-slate-100 text-slate-600 border border-slate-300'
+                                : stock.priceType === 'LAST_CLOSE'
                                 ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : stock.priceType === 'STALE'
+                                ? 'bg-slate-100 text-slate-700 border border-slate-300'
                                 : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                             }`}
                           >
-                            {stock.priceType === 'LAST_CLOSE' ? 'LAST CLOSE' : 'LIVE'}
+                            {stock.dataSource === 'UNAVAILABLE' || stock.ltp == null
+                              ? 'UNAVAILABLE'
+                              : stock.priceType === 'LAST_CLOSE'
+                              ? 'LAST CLOSE'
+                              : stock.priceType === 'STALE'
+                              ? 'STALE'
+                              : 'LIVE'}
                           </span>
                         </td>
 

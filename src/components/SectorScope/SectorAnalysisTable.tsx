@@ -529,12 +529,12 @@ export const SectorAnalysisTable: React.FC<SectorAnalysisTableProps> = ({
 
                   {/* 17. Bullish Rank */}
                   <td className="py-2.5 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
-                    #{sector.bullishRank}
+                    {sector.bullishRank && sector.bullishRank > 0 ? `#${sector.bullishRank}` : '—'}
                   </td>
 
                   {/* 18. Bearish Rank */}
                   <td className="py-2.5 px-3 text-center font-bold text-rose-600 dark:text-rose-400">
-                    #{sector.bearishRank}
+                    {sector.bearishRank && sector.bearishRank > 0 ? `#${sector.bearishRank}` : '—'}
                   </td>
 
                   {/* Action drilldown chevron */}

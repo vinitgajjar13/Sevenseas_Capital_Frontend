@@ -21,6 +21,7 @@ import {
   StockRadarItem,
   SectorAnalysisItem,
   SectorStockItem,
+  SectorDirectionType,
   MarketIndexes,
   MarketBreadth,
 } from '../../types';
@@ -29,7 +30,10 @@ import {
   MOCK_SECTOR_STOCKS,
   getSectorSummaryMetrics,
   getMarketBreadthExtended,
+  SECTOR_INDEX_SYMBOLS,
+  SECTOR_ALIASES,
 } from '../../data/mock/sectorScope';
+import { MarketOverview, MarketOverviewSector } from '../../services/backendApi';
 import { SectorMarketOverview } from './SectorMarketOverview';
 import { SectorSummaryCards } from './SectorSummaryCards';
 import { SectorAnalysisTable } from './SectorAnalysisTable';
@@ -47,11 +51,93 @@ interface SectorRadarViewProps {
   stocks?: StockRadarItem[];
   indices?: MarketIndexes;
   breadth?: MarketBreadth;
+  marketOverview?: MarketOverview | null;
+  radarSectors?: MarketOverviewSector[] | null;
+  isLiveConnected?: boolean;
   onSelectStock?: (stock: StockRadarItem) => void;
   selectedSectorName?: string | null;
   onSelectSector?: (sectorName: string | null) => void;
   onSimulateStateTransition?: () => void;
   theme?: 'light' | 'dark';
+}
+
+function mapBackendSectorToAnalysisItem(s: MarketOverviewSector, index: number): SectorAnalysisItem {
+  const secName = s.sector;
+  const id = 'sec-' + secName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const indexSymbol = SECTOR_INDEX_SYMBOLS[secName] || 'SECTOR';
+  const total = s.total_stocks ?? s.total ?? 0;
+  const avg = s.avg_change ?? s.average_change_percent ?? 0;
+  const pos = s.positive_stocks ?? s.advances ?? 0;
+  const neg = s.negative_stocks ?? s.declines ?? 0;
+  const bullPct = s.bullish_pct ?? (total > 0 ? Math.round((pos / total) * 100) : 50);
+  const bearPct = s.bearish_pct ?? (total > 0 ? Math.round((neg / total) * 100) : 50);
+  const totVol = s.live_volume ?? 0;
+  const volPerStock = s.volume_per_stock ?? (total > 0 ? Math.round(totVol / total) : 0);
+  const bullVol = s.bullish_volume ?? 0;
+  const bearVol = s.bearish_volume ?? 0;
+  const bullVolPct = s.bullish_volume_pct ?? 0;
+  const bearVolPct = s.bearish_volume_pct ?? 0;
+
+  let dir: SectorDirectionType = 'Neutral';
+  if (s.direction?.includes('BULL')) dir = 'Bullish';
+  else if (s.direction?.includes('BEAR')) dir = 'Bearish';
+
+  const score = s.score ?? 0;
+  const topBull = s.top_bullish_stocks && s.top_bullish_stocks.length > 0 ? s.top_bullish_stocks[0] : null;
+  const topBear = s.top_bearish_stocks && s.top_bearish_stocks.length > 0 ? s.top_bearish_stocks[0] : null;
+
+  let topStock = 'N/A';
+  let topStockChange = 0;
+  if (topBull) {
+    topStock = `${topBull.symbol} (+${topBull.change_pct.toFixed(2)}%)`;
+    topStockChange = topBull.change_pct;
+  } else if (topBear) {
+    topStock = `${topBear.symbol} (${topBear.change_pct.toFixed(2)}%)`;
+    topStockChange = topBear.change_pct;
+  }
+
+  const indexBase = 15000 + Math.round(score * 180);
+  const dayChange = +(indexBase * (avg / 100)).toFixed(2);
+
+  return {
+    id,
+    name: secName,
+    indexSymbol,
+    totalStocks: total,
+    avgChangePercent: avg,
+    positiveStocks: pos,
+    negativeStocks: neg,
+    bullishPercent: bullPct,
+    bearishPercent: bearPct,
+    totalVolume: totVol,
+    volumePerStock: volPerStock,
+    bullishVolume: bullVol,
+    bearishVolume: bearVol,
+    bullishVolumePercent: bullVolPct,
+    bearishVolumePercent: bearVolPct,
+    direction: dir,
+    rawDirection: s.direction,
+    score,
+    overallRank: index + 1,
+    bullishRank: s.bullish_rank ?? 0,
+    bearishRank: s.bearish_rank ?? 0,
+    topStock,
+    topStockChange,
+    topBullishStocks: s.top_bullish_stocks,
+    topBearishStocks: s.top_bearish_stocks,
+    historySparkline: [
+      Math.max(10, Math.min(100, score - 8)),
+      Math.max(10, Math.min(100, score - 5)),
+      Math.max(10, Math.min(100, score - 2)),
+      Math.max(10, Math.min(100, score + 1)),
+      score,
+    ],
+    indexPrice: indexBase,
+    change: dayChange,
+    changePct: avg,
+    dayHigh: +(indexBase * 1.008).toFixed(2),
+    dayLow: +(indexBase * 0.992).toFixed(2),
+  };
 }
 
 export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
@@ -60,16 +146,23 @@ export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
   stocks,
   indices,
   breadth,
+  marketOverview,
+  radarSectors,
+  isLiveConnected = false,
   onSelectStock,
   selectedSectorName,
   onSelectSector,
   onSimulateStateTransition,
   theme = 'light',
 }) => {
-  // Sector analytical data initialized for chosen timePeriod
-  const [sectors, setSectors] = useState<SectorAnalysisItem[]>(() =>
-    getSectorDataForPeriod(timePeriod)
-  );
+  // Sector analytical data initialized for chosen timePeriod or live backend data
+  const [sectors, setSectors] = useState<SectorAnalysisItem[]>(() => {
+    const rawBackendSectors = radarSectors || marketOverview?.sectors;
+    if (rawBackendSectors && rawBackendSectors.length > 0) {
+      return rawBackendSectors.map(mapBackendSectorToAnalysisItem);
+    }
+    return getSectorDataForPeriod(timePeriod);
+  });
 
   // Constituent stocks map state
   const [sectorStocks, setSectorStocks] = useState<Record<string, SectorStockItem[]>>(
@@ -78,7 +171,7 @@ export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
 
   // Active sector selection
   const [activeSector, setActiveSector] = useState<SectorAnalysisItem | null>(() => {
-    const list = getSectorDataForPeriod(timePeriod);
+    const list = sectors;
     if (selectedSectorName) {
       return (
         list.find(
@@ -88,7 +181,7 @@ export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
         ) || list[0]
       );
     }
-    return list[0]; // Default to top sector (e.g. NIFTY IT)
+    return list[0];
   });
 
   // Selected stock for Drawer inspection
@@ -101,23 +194,93 @@ export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
   // Ref for constituent drilldown section to scroll into view when selected
   const drilldownRef = useRef<HTMLDivElement>(null);
 
-  // Re-load sector data whenever timePeriod changes
+  // Synchronize backend sector data when available
   useEffect(() => {
-    const freshData = getSectorDataForPeriod(timePeriod);
-    setSectors(freshData);
+    const rawBackendSectors = radarSectors || marketOverview?.sectors;
+    if (rawBackendSectors && rawBackendSectors.length > 0) {
+      const liveSectors = rawBackendSectors.map(mapBackendSectorToAnalysisItem);
+      setSectors(liveSectors);
 
-    // Maintain or update active sector
-    if (activeSector) {
-      const matching = freshData.find((s) => s.id === activeSector.id || s.name === activeSector.name);
-      if (matching) {
-        setActiveSector(matching);
-      } else {
-        setActiveSector(freshData[0]);
+      if (activeSector) {
+        const matching = liveSectors.find((s) => s.id === activeSector.id || s.name === activeSector.name);
+        if (matching) setActiveSector(matching);
+      } else if (liveSectors.length > 0) {
+        setActiveSector(liveSectors[0]);
       }
     } else {
-      setActiveSector(freshData[0]);
+      const freshData = getSectorDataForPeriod(timePeriod);
+      setSectors(freshData);
     }
-  }, [timePeriod]);
+  }, [radarSectors, marketOverview, timePeriod]);
+
+  // Synchronize live stock radar items into sector stocks map
+  useEffect(() => {
+    if (stocks && stocks.length > 0) {
+      const grouped: Record<string, SectorStockItem[]> = {};
+      stocks.forEach((stk) => {
+        const sec = stk.sector;
+        if (!grouped[sec]) grouped[sec] = [];
+
+        const isBull = stk.marketClassification === 'BULLISH' || stk.changePercent >= 0.4;
+        const isBear = stk.marketClassification === 'BEARISH' || stk.changePercent <= -0.4;
+
+        const capital = stk.capital || Math.round(stk.ltp * (stk.volume && stk.volume > 5000000 ? 500 : 250));
+
+        grouped[sec].push({
+          id: stk.id,
+          symbol: stk.symbol,
+          name: stk.name,
+          sector: stk.sector,
+          ltp: stk.ltp,
+          change: stk.change,
+          changePercent: stk.changePercent,
+          changePct: stk.changePercent,
+          low: stk.low ?? stk.low915,
+          high: stk.high ?? stk.high915,
+          capital,
+          volume: stk.volume || 100000,
+          signalDirection: isBull ? 'Bullish' : isBear ? 'Bearish' : 'Neutral',
+          tradingSignal: stk.teacherAction?.includes('BULL')
+            ? 'Buy Call'
+            : stk.teacherAction?.includes('BEAR')
+            ? 'Buy Put'
+            : isBull
+            ? 'Buy Call'
+            : isBear
+            ? 'Buy Put'
+            : 'Hold',
+          entryPrice: stk.open915 || stk.ltp,
+          target1: stk.target1,
+          target2: stk.target2,
+          target3: stk.target3 || +(stk.target2 * 1.015).toFixed(2),
+          target4: stk.target4 || +(stk.target2 * 1.03).toFixed(2),
+          stopLoss: stk.stopLoss,
+          comment: stk.teacherAction
+            ? `Teacher: ${stk.teacherAction}`
+            : stk.watchStatus
+            ? `Watch: ${stk.watchStatus}`
+            : stk.analystNote || stk.conditionMet,
+          vwap: stk.vwap,
+          rsi: stk.rsi,
+          score: stk.score,
+        });
+      });
+
+      // Sort descending by changePercent
+      Object.keys(grouped).forEach((sec) => {
+        grouped[sec].sort((a, b) => b.changePercent - a.changePercent);
+        const alias = SECTOR_INDEX_SYMBOLS[sec];
+        if (alias) grouped[alias] = grouped[sec];
+      });
+
+      // Link legacy aliases
+      Object.entries(SECTOR_ALIASES).forEach(([alias, targetSec]) => {
+        if (grouped[targetSec]) grouped[alias] = grouped[targetSec];
+      });
+
+      setSectorStocks(grouped);
+    }
+  }, [stocks]);
 
   // Sync external selectedSectorName prop
   useEffect(() => {
@@ -133,15 +296,14 @@ export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
     }
   }, [selectedSectorName, sectors]);
 
-  // Simulated live tick updates with interval cleanup on unmount
+  // Simulation timer only runs when NOT connected to live backend data
   useEffect(() => {
+    if (isLiveConnected) return;
+
     const interval = setInterval(() => {
-      // 1. Small tick updates to sector analytical metrics
       setSectors((prevSectors) => {
         return prevSectors.map((sector) => {
-          // 40% probability of tick per sector
           if (Math.random() > 0.4) return sector;
-
           const pctTick = (Math.random() - 0.49) * 0.05;
           const newPct = +(sector.changePct || sector.avgChangePercent + pctTick).toFixed(2);
           const currentPrice = sector.indexPrice || 25000;
@@ -161,40 +323,10 @@ export const SectorRadarView: React.FC<SectorRadarViewProps> = ({
           };
         });
       });
-
-      // 2. Small tick updates to active sector constituent stocks
-      if (activeSector) {
-        setSectorStocks((prevMap) => {
-          const activeList = prevMap[activeSector.name] || prevMap[activeSector.indexSymbol];
-          if (!activeList || activeList.length === 0) return prevMap;
-
-          const updatedList = activeList.map((stk) => {
-            if (Math.random() > 0.5) return stk;
-            const tick = (Math.random() - 0.49) * 0.003;
-            const newLtp = +(stk.ltp * (1 + tick)).toFixed(2);
-            const newChg = +(stk.change + (newLtp - stk.ltp)).toFixed(2);
-            const newChgPct = +(((newLtp - (stk.ltp - stk.change)) / (stk.ltp - stk.change)) * 100).toFixed(2);
-
-            return {
-              ...stk,
-              ltp: newLtp,
-              change: newChg,
-              changePct: newChgPct,
-              high: Math.max(stk.high, newLtp),
-              low: Math.min(stk.low, newLtp),
-            };
-          });
-
-          return {
-            ...prevMap,
-            [activeSector.name]: updatedList,
-          };
-        });
-      }
     }, 2800);
 
     return () => clearInterval(interval);
-  }, [activeSector]);
+  }, [isLiveConnected]);
 
   // Sector Summary Metrics (Total, Strong Bullish, etc.)
   const summaryMetrics = useMemo(() => {

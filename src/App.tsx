@@ -20,7 +20,7 @@ import {
   WatchlistStockItem,
 } from './types';
 import { getInitialWatchlist, MasterStockEntry } from './data/mock/watchlistData';
-import { getStockClassification } from './utils/stockRanking';
+import { getStockClassification, assignDynamicRanks } from './utils/stockRanking';
 import type { PortfolioSummaryValues } from './components/Dashboard/PortfolioSummary';
 import {
   Sidebar,
@@ -44,6 +44,7 @@ import {
   checkBackendHealth,
   connectGroww,
   fetchMarketOverview,
+  fetchMarketRadar,
   fetchGrowwMarketIndices,
   fetchMarketStatus,
   fetchMarketPrices,
@@ -62,6 +63,7 @@ import {
   GrowwMargins,
   LiveMarketTick,
   MarketOverview,
+  MarketRadarResponse,
   GrowwMarketIndicesResponse,
 } from './services/backendApi';
 import { MarketStatusDetail, getIndianMarketStatus } from './utils/marketHours';
@@ -178,6 +180,7 @@ export default function App() {
   const [growwMargins, setGrowwMargins] = useState<GrowwMargins | null>(null);
   const [growwHoldingLtps, setGrowwHoldingLtps] = useState<Record<string, number>>({});
   const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null);
+  const [marketRadarData, setMarketRadarData] = useState<MarketRadarResponse | null>(null);
   const [connectPending, setConnectPending] = useState<boolean>(false);
   const wsClientRef = useRef<MarketWebSocketClient | null>(null);
   const tokenToSymbolMapRef = useRef<Map<number | string, string>>(new Map());
@@ -201,8 +204,7 @@ export default function App() {
     } catch {}
   }, [priceAlerts]);
 
-  // Apply only market facts supplied by Groww. Strategy scores/signals remain separate
-  // and must not be presented as broker-provided data.
+  // Apply market facts and Excel strategy data supplied by backend overview
   const applyLiveOverview = useCallback((overview: MarketOverview | null) => {
     if (!overview) return;
     setMarketOverview(overview);
@@ -222,28 +224,96 @@ export default function App() {
         .filter((item) => item.previous_close != null && Number.isFinite(item.previous_close))
         .map((item) => [item.symbol.toUpperCase(), Number(item.previous_close)])
     );
-    setStocksRadar((previous) => previous.map((stock) => {
-      const item = liveBySymbol.get(stock.symbol.toUpperCase());
-      if (!item || item.ltp == null) return stock;
-      const base = item.previous_close ?? item.open ?? stock.open915;
-      const change = item.change ?? (item.ltp - base);
-      const changePercent = item.change_percent ?? (base ? (change / base) * 100 : stock.changePercent);
-      return {
-        ...stock,
-        ltp: item.ltp,
-        change,
-        changePercent,
-        prevClose: item.previous_close ?? stock.prevClose,
-        priceType: currentPriceType,
-        lastUpdated: overview.updated_at,
-        open915: item.open ?? stock.open915,
-        high: item.high ?? stock.high,
-        low: item.low ?? stock.low,
-        dayHigh: item.high ?? stock.dayHigh,
-        dayLow: item.low ?? stock.dayLow,
-        volume: item.volume ?? stock.volume,
-      };
-    }));
+
+    setStocksRadar((previous) => {
+      const updated = previous.map((stock) => {
+        const item = liveBySymbol.get(stock.symbol.toUpperCase());
+        if (!item || item.ltp == null) {
+          if (item) {
+            // Retain reference and strategy fields even if off-market / missing tick
+            return {
+              ...stock,
+              watchStatus: item.watch_status ?? stock.watchStatus,
+              bullishWatch: item.bullish_watch ?? stock.bullishWatch,
+              bearishWatch: item.bearish_watch ?? stock.bearishWatch,
+              signal: item.signal ?? stock.signal,
+              teacherAction: item.action ?? stock.teacherAction,
+              strategyState: item.strategy_state ?? stock.strategyState,
+              specialBullish: item.special_bullish ?? stock.specialBullish,
+              specialBearish: item.special_bearish ?? stock.specialBearish,
+              hasReferenceData: item.has_reference_data ?? stock.hasReferenceData,
+              pdHigh: item.pd_high ?? stock.pdHigh,
+              pdLow: item.pd_low ?? stock.pdLow,
+              close915: item.close_915 ?? stock.close915,
+              changePercent915: item.change_percent_915 ?? stock.changePercent915,
+              dataSource: item.data_source ?? stock.dataSource,
+              score: item.score ?? stock.score,
+            };
+          }
+          return stock;
+        }
+
+        const base = item.previous_close ?? item.open ?? stock.open915;
+        const change = item.change ?? (item.ltp - base);
+        const changePercent = item.change_percent ?? (base ? (change / base) * 100 : stock.changePercent);
+
+        const updatedItem: StockRadarItem = {
+          ...stock,
+          ltp: item.ltp,
+          change,
+          changePercent,
+          prevClose: item.previous_close ?? stock.prevClose,
+          priceType: currentPriceType,
+          lastUpdated: overview.updated_at,
+          open915: item.open ?? stock.open915,
+          high: item.high ?? stock.high,
+          low: item.low ?? stock.low,
+          dayHigh: item.high ?? stock.dayHigh,
+          dayLow: item.low ?? stock.dayLow,
+          volume: item.volume ?? stock.volume,
+          watchStatus: item.watch_status ?? stock.watchStatus,
+          bullishWatch: item.bullish_watch ?? stock.bullishWatch,
+          bearishWatch: item.bearish_watch ?? stock.bearishWatch,
+          signal: item.signal ?? stock.signal,
+          teacherAction: item.action ?? stock.teacherAction,
+          strategyState: item.strategy_state ?? stock.strategyState,
+          specialBullish: item.special_bullish ?? stock.specialBullish,
+          specialBearish: item.special_bearish ?? stock.specialBearish,
+          hasReferenceData: item.has_reference_data ?? stock.hasReferenceData,
+          pdHigh: item.pd_high ?? stock.pdHigh,
+          pdLow: item.pd_low ?? stock.pdLow,
+          close915: item.close_915 ?? stock.close915,
+          changePercent915: item.change_percent_915 ?? stock.changePercent915,
+          dataSource: item.data_source ?? stock.dataSource,
+          score: item.score ?? stock.score,
+        };
+
+        const prevClass = stock.marketClassification || getStockClassification(stock);
+        const newClass = getStockClassification(updatedItem);
+        if (prevClass !== newClass) {
+          const now = new Date();
+          updatedItem.previousClassification = prevClass;
+          updatedItem.lastStateChange = {
+            from: prevClass,
+            to: newClass,
+            timestamp: now.toLocaleTimeString('en-IN', {
+              hour12: false,
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            }),
+          };
+        } else if (stock.lastStateChange) {
+          updatedItem.previousClassification = stock.previousClassification;
+          updatedItem.lastStateChange = stock.lastStateChange;
+        }
+        updatedItem.marketClassification = newClass;
+
+        return updatedItem;
+      });
+
+      return assignDynamicRanks(updated);
+    });
 
     setWatchlistStocks((previous) => previous.map((watch) => {
       const item = liveBySymbol.get(watch.symbol.toUpperCase());
@@ -300,6 +370,78 @@ export default function App() {
       return next;
     });
   }, [marketStatusDetail.priceType]);
+
+  // Audio tone notification helper for triggered price alert
+  const playAlertChime = useCallback(() => {
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioContextClass) {
+        const ctx = new AudioContextClass();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      }
+    } catch {
+      // Audio playback fails gracefully if unpermitted by browser policy
+    }
+  }, []);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 4000);
+  }, []);
+
+  // Helper to evaluate price alerts against incoming tick price (live WS ticks or simulation)
+  const checkAndTriggerAlerts = useCallback((symbol: string, stockId: string, tickPrice: number) => {
+    const currentAlerts = priceAlertsRef.current;
+    if (!currentAlerts || currentAlerts.length === 0) return;
+
+    currentAlerts.forEach((alert) => {
+      if (alert.triggered) return;
+      if (alert.symbol.toUpperCase() === symbol.toUpperCase() || alert.stockId === stockId) {
+        const target = alert.targetPrice;
+        const isHit =
+          alert.direction === 'ABOVE'
+            ? tickPrice >= target
+            : tickPrice <= target;
+
+        if (isHit) {
+          setPriceAlerts((prev) =>
+            prev.map((a) =>
+              a.id === alert.id
+                ? {
+                    ...a,
+                    triggered: true,
+                    triggeredAt: new Date().toLocaleTimeString('en-IN', {
+                      hour12: false,
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    }),
+                  }
+                : a
+            )
+          );
+          playAlertChime();
+          showToast(
+            `🔔 PRICE ALERT HIT: ${alert.symbol} reached target of ${formatINR(target)}! (Current: ${formatINR(
+              tickPrice
+            )})`
+          );
+        }
+      }
+    });
+  }, [playAlertChime, showToast]);
 
   // Initial Backend Connection & Real-Time WebSocket Handshake
   useEffect(() => {
@@ -380,10 +522,11 @@ export default function App() {
               }
             }
 
-            // Load real quotes/OHLC and verified market calendar status.
-            const [statusRes, overview, liveIndices] = await Promise.all([
+            // Load real quotes/OHLC, verified market calendar status, and Excel strategy radar.
+            const [statusRes, overview, radarRes, liveIndices] = await Promise.all([
               fetchMarketStatus(),
               fetchMarketOverview(),
+              fetchMarketRadar(),
               fetchGrowwMarketIndices(),
             ]);
             if (isMounted && statusRes) {
@@ -400,6 +543,7 @@ export default function App() {
               }));
             }
             if (isMounted) {
+              if (radarRes) setMarketRadarData(radarRes);
               applyLiveOverview(overview);
               applyLiveIndices(liveIndices);
               if (overview || liveIndices) setIsSimulating(false);
@@ -433,34 +577,96 @@ export default function App() {
 
             if (symbol) {
               const symbolKey = symbol.toUpperCase();
-              setStocksRadar((prev) =>
-                prev.map((stk) => {
+
+              // Trigger price alerts on actual live ticks
+              checkAndTriggerAlerts(symbolKey, symbolKey, tickPrice);
+
+              setStocksRadar((prev) => {
+                const updated = prev.map((stk) => {
                   if (stk.symbol.toUpperCase() !== symbolKey) return stk;
                   const base = previousCloseRef.current.get(symbolKey) ?? stk.open915;
                   const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
                   const dayChangePct = tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : stk.changePercent);
-                  return {
+
+                  const updatedItem: StockRadarItem = {
                     ...stk,
                     ltp: tickPrice,
                     change: dayChange,
                     changePercent: dayChangePct,
+                    high: tick.high ?? (tickPrice > stk.high ? tickPrice : stk.high),
+                    low: tick.low ?? (tickPrice < stk.low ? tickPrice : stk.low),
+                    dayHigh: tick.high ?? (tickPrice > stk.dayHigh ? tickPrice : stk.dayHigh),
+                    dayLow: tick.low ?? (tickPrice < stk.dayLow ? tickPrice : stk.dayLow),
+                    open915: tick.open ?? stk.open915,
                     volume: tick.volume_traded ?? tick.volume ?? stk.volume,
+                    dataSource: 'groww',
                   };
-                })
-              );
+
+                  const prevClass = stk.marketClassification || getStockClassification(stk);
+                  const newClass = getStockClassification(updatedItem);
+                  if (prevClass !== newClass) {
+                    const now = new Date();
+                    updatedItem.previousClassification = prevClass;
+                    updatedItem.lastStateChange = {
+                      from: prevClass,
+                      to: newClass,
+                      timestamp: now.toLocaleTimeString('en-IN', {
+                        hour12: false,
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      }),
+                    };
+                  } else if (stk.lastStateChange) {
+                    updatedItem.previousClassification = stk.previousClassification;
+                    updatedItem.lastStateChange = stk.lastStateChange;
+                  }
+                  updatedItem.marketClassification = newClass;
+
+                  return updatedItem;
+                });
+
+                return assignDynamicRanks(updated);
+              });
+
               setActiveStockDetail((prev) => {
                 if (!prev || prev.symbol.toUpperCase() !== symbolKey) return prev;
                 const base = previousCloseRef.current.get(symbolKey) ?? prev.open915;
                 const dayChange = tick.day_change ?? +(tickPrice - base).toFixed(2);
                 const dayChangePct = tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : prev.changePercent);
-                return {
+                const updated: StockRadarItem = {
                   ...prev,
                   ltp: tickPrice,
                   change: dayChange,
                   changePercent: dayChangePct,
+                  high: tick.high ?? (tickPrice > prev.high ? tickPrice : prev.high),
+                  low: tick.low ?? (tickPrice < prev.low ? tickPrice : prev.low),
+                  dayHigh: tick.high ?? (tickPrice > prev.dayHigh ? tickPrice : prev.dayHigh),
+                  dayLow: tick.low ?? (tickPrice < prev.dayLow ? tickPrice : prev.dayLow),
+                  open915: tick.open ?? prev.open915,
                   volume: tick.volume_traded ?? tick.volume ?? prev.volume,
+                  dataSource: 'groww',
                 };
+                const prevClass = prev.marketClassification || getStockClassification(prev);
+                const newClass = getStockClassification(updated);
+                if (prevClass !== newClass) {
+                  const now = new Date();
+                  updated.previousClassification = prevClass;
+                  updated.lastStateChange = {
+                    from: prevClass,
+                    to: newClass,
+                    timestamp: now.toLocaleTimeString('en-IN', {
+                      hour12: false,
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    }),
+                  };
+                }
+                updated.marketClassification = newClass;
+                return updated;
               });
+
               setMarketOverview((previous) => {
                 if (!previous) return previous;
                 const stocks = previous.stocks.map((row) => {
@@ -510,6 +716,7 @@ export default function App() {
                   unchanged,
                 };
               });
+
               setWatchlistStocks((prev) => prev.map((stock) => {
                 if (stock.symbol.toUpperCase() !== symbolKey) return stock;
                 const base = previousCloseRef.current.get(symbolKey) ?? stock.open915 ?? tickPrice;
@@ -519,6 +726,9 @@ export default function App() {
                   ltp: tickPrice,
                   change: dayChange,
                   changePercent: tick.day_change_perc ?? (base ? +((dayChange / base) * 100).toFixed(2) : stock.changePercent),
+                  high: tick.high ?? stock.high,
+                  low: tick.low ?? stock.low,
+                  open915: tick.open ?? stock.open915,
                   volume: tick.volume_traded ?? tick.volume ?? stock.volume,
                   sparkline: [...(stock.sparkline || []).slice(-5), tickPrice],
                 };
@@ -541,37 +751,7 @@ export default function App() {
       isMounted = false;
       wsClientRef.current?.disconnect();
     };
-  }, [applyLiveOverview, applyLiveIndices]);
-
-  // Audio tone notification helper for triggered price alert
-  const playAlertChime = useCallback(() => {
-    try {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioContextClass) {
-        const ctx = new AudioContextClass();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.12);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.35);
-      }
-    } catch {
-      // Audio playback fails gracefully if unpermitted by browser policy
-    }
-  }, []);
-
-  const showToast = useCallback((msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
-  }, []);
+  }, [applyLiveOverview, applyLiveIndices, checkAndTriggerAlerts]);
 
   // Calculate live unrealized P&L
   const totalUnrealizedPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
@@ -738,49 +918,6 @@ export default function App() {
           },
         };
       });
-
-      // Helper to evaluate price alerts against incoming tick price
-      const checkAndTriggerAlerts = (symbol: string, stockId: string, tickPrice: number) => {
-        const currentAlerts = priceAlertsRef.current;
-        if (!currentAlerts || currentAlerts.length === 0) return;
-
-        currentAlerts.forEach((alert) => {
-          if (alert.triggered) return;
-          if (alert.symbol === symbol || alert.stockId === stockId) {
-            const target = alert.targetPrice;
-            const isHit =
-              alert.direction === 'ABOVE'
-                ? tickPrice >= target
-                : tickPrice <= target;
-
-            if (isHit) {
-              // Mark alert as triggered
-              setPriceAlerts((prev) =>
-                prev.map((a) =>
-                  a.id === alert.id
-                    ? {
-                        ...a,
-                        triggered: true,
-                        triggeredAt: new Date().toLocaleTimeString('en-IN', {
-                          hour12: false,
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                        }),
-                      }
-                    : a
-                )
-              );
-              playAlertChime();
-              showToast(
-                `🔔 PRICE ALERT HIT: ${alert.symbol} reached target of ${formatINR(target)}! (Current: ${formatINR(
-                  tickPrice
-                )})`
-              );
-            }
-          }
-        });
-      };
 
       // 2. High-performance stock fluctuation logic:
       // When a stock is actively selected in StockDetailView, update ONLY that specific stock
@@ -1146,12 +1283,13 @@ export default function App() {
         return;
       }
 
-      const [statusRes, profile, holdings, margins, overview, liveIndices] = await Promise.all([
+      const [statusRes, profile, holdings, margins, overview, radarRes, liveIndices] = await Promise.all([
         fetchMarketStatus(),
         fetchGrowwUserProfile(),
         fetchGrowwHoldings(),
         fetchGrowwMargins(),
         fetchMarketOverview(),
+        fetchMarketRadar(),
         fetchGrowwMarketIndices(),
       ]);
       if (statusRes) {
@@ -1172,6 +1310,7 @@ export default function App() {
       setGrowwMargins(margins);
       const holdingLtps = await fetchGrowwBatchLTP(holdings.map((holding) => holding.trading_symbol));
       setGrowwHoldingLtps(holdingLtps);
+      if (radarRes) setMarketRadarData(radarRes);
       applyLiveOverview(overview);
       applyLiveIndices(liveIndices);
       setCurrentUser((prev) => ({
@@ -1201,11 +1340,12 @@ export default function App() {
   const handleRefreshData = async () => {
     if (backendConnected) {
       try {
-        const [statusRes, holdings, margins, overview, liveIndices] = await Promise.all([
+        const [statusRes, holdings, margins, overview, radarRes, liveIndices] = await Promise.all([
           fetchMarketStatus(),
           fetchGrowwHoldings(),
           fetchGrowwMargins(),
           fetchMarketOverview(),
+          fetchMarketRadar(),
           fetchGrowwMarketIndices(),
         ]);
         if (statusRes) {
@@ -1221,6 +1361,7 @@ export default function App() {
             formattedLastCloseLabel: `Last Close (${statusRes.lastTradingSessionDate})`,
           }));
         }
+        if (radarRes) setMarketRadarData(radarRes);
         if (overview) applyLiveOverview(overview);
         if (liveIndices) applyLiveIndices(liveIndices);
         setGrowwHoldings(holdings);
@@ -1248,7 +1389,7 @@ export default function App() {
             );
           }
         }
-        showToast('Holdings & Quotes refreshed from Groww API');
+        showToast('Holdings, Strategy Radar & Quotes refreshed');
         return;
       } catch {}
     }
@@ -1262,13 +1403,7 @@ export default function App() {
   };
 
   const liveDataConnected = Boolean(backendConnected && growwAuth?.authenticated);
-  const dashboardStocks = liveDataConnected
-    ? (marketOverview
-        ? stocksRadar.filter((stock) => marketOverview.stocks.some(
-            (item) => item.symbol.toUpperCase() === stock.symbol.toUpperCase() && item.ltp != null
-          ))
-        : [])
-    : stocksRadar;
+  const dashboardStocks = stocksRadar;
 
   const livePortfolioSummary: PortfolioSummaryValues | null = liveDataConnected
     ? (() => {
@@ -1453,6 +1588,9 @@ export default function App() {
                 onSelectStock={handleSelectStock}
                 onSimulateStateTransition={handleSimulateStateTransition}
                 theme={theme}
+                marketOverview={marketOverview}
+                radarSectors={marketRadarData?.sectors || marketOverview?.sectors}
+                isLiveConnected={liveDataConnected}
               />
             </div>
           )}
@@ -1571,6 +1709,8 @@ export default function App() {
                     const stock = stocksRadar.find((s) => s.symbol === sig.stock);
                     if (stock) handleSimulateTrade(stock);
                   }}
+                  marketRadar={marketRadarData}
+                  stocks={stocksRadar}
                 />
               )}
             </div>

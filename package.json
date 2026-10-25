@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/utils/marketHours.test.ts"
+    "test": "tsx --test src/utils/marketHours.test.ts src/utils/strategyMapping.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

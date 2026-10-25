@@ -1,3 +1,5 @@
+import { API_BASE_URL } from './backendApi';
+
 export interface AuthUser {
   id?: number;
   email: string;
@@ -60,7 +62,7 @@ export async function authenticateUser(
 
   // 1. Attempt Backend API call
   try {
-    const response = await fetch('/api/v1/auth/login', {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -136,7 +138,7 @@ export async function resetUserPassword(
 
   // 1. Try Backend API
   try {
-    const response = await fetch('/api/v1/auth/reset-password', {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

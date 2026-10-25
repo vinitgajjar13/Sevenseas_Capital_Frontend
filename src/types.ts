@@ -10,7 +10,7 @@ export type SectorStrength = 'STRONG_BULL' | 'MILD_BULL' | 'NEUTRAL' | 'MILD_BEA
 export type SlotBucket = 'Slot 1: Alpha Leader' | 'Slot 2: Breakout Momentum' | 'Slot 3: Trend Follower' | 'Slot 4: Mean-Reversion' | 'Slot 5: Weak / Distribution';
 
 export type MarketStatusType = 'Market Open' | 'Market Closed' | 'Pre-Open' | 'Post-Market';
-export type PriceType = 'LIVE' | 'LAST_CLOSE';
+export type PriceType = 'LIVE' | 'LAST_CLOSE' | 'STALE' | 'UNAVAILABLE';
 
 export interface IndexConstituentStock {
   id?: string;
@@ -139,6 +139,23 @@ export interface StockRadarItem {
   priceType?: PriceType;
   lastUpdated?: string;
   prevClose?: number;
+  // Excel Strategy Fields from Backend
+  watchStatus?: string | null;
+  bullishWatch?: boolean;
+  bearishWatch?: boolean;
+  signal?: string | null;
+  teacherAction?: string | null;
+  strategyState?: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  specialBullish?: string | null;
+  specialBearish?: string | null;
+  hasReferenceData?: boolean;
+  changePercent915?: number | null;
+  pdHigh?: number | null;
+  pdLow?: number | null;
+  close915?: number | null;
+  dataSource?: string;
+  bullishRank?: number | null;
+  bearishRank?: number | null;
 }
 
 export interface PriceAlert {
@@ -398,6 +415,21 @@ export interface SectorAnalysisItem {
   changePct?: number;
   dayHigh?: number;
   dayLow?: number;
+  topBullishStocks?: Array<{
+    symbol: string;
+    price?: number;
+    change_pct: number;
+    volume: number;
+    contribution_score: number;
+  }>;
+  topBearishStocks?: Array<{
+    symbol: string;
+    price?: number;
+    change_pct: number;
+    volume: number;
+    contribution_score: number;
+  }>;
+  rawDirection?: string;
 }
 
 export interface SectorStockItem {
